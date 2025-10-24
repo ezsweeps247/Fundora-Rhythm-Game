@@ -8,13 +8,18 @@
  * 
  * This module handles:
  * - Loading chart JSON files
+ * - Lyrics-based chart generation (LRC → notes)
+ * - Vocal onset detection fallback
  * - Validating chart data
  * - Sorting notes by time
  */
 
+import { LyricsManager } from './lyrics.js';
+
 export class ChartManager {
   constructor() {
     this.currentChart = null;
+    this.lyricsManager = new LyricsManager();
   }
 
   /**
@@ -63,6 +68,106 @@ export class ChartManager {
       console.error('Failed to load chart:', error);
       throw error;
     }
+  }
+
+  /**
+   * Load chart with lyrics support
+   * Priority: Cached JSON → LRC → Vocal onset detection
+   * 
+   * @param {string} songId - Song ID (e.g., 'sample1')
+   * @param {string} audioPath - Path to audio file
+   * @param {AudioBuffer} audioBuffer - Audio buffer for vocal onset detection
+   * @param {Object} settings - Settings {useLyrics, quantizeMode, langHint}
+   * @returns {Promise<object>} Generated chart
+   */
+  async loadChartWithLyrics(songId, audioPath, audioBuffer, settings = {}) {
+    const {
+      useLyrics = true,
+      quantizeMode = 'off',
+      langHint = 'auto'
+    } = settings;
+    
+    // Try to load cached chart first
+    try {
+      const response = await fetch(`/charts/${songId}.json`);
+      if (response.ok) {
+        const chart = await response.json();
+        this.validateChart(chart);
+        this.currentChart = chart;
+        console.log(`✓ Loaded cached chart: ${chart.title}`);
+        return chart;
+      }
+    } catch (error) {
+      // No cached chart, continue to generation
+    }
+    
+    let notes = [];
+    let title = songId;
+    let bpm = 120;
+    
+    // Try LRC if lyrics enabled
+    if (useLyrics) {
+      try {
+        const lrcResponse = await fetch(`/lyrics/${songId}.lrc`);
+        if (lrcResponse.ok) {
+          const lrcText = await lrcResponse.text();
+          const entries = this.lyricsManager.parseLRC(lrcText);
+          
+          if (entries.length > 0) {
+            notes = this.lyricsManager.generateNotesFromLRC(
+              entries,
+              bpm,
+              quantizeMode,
+              langHint
+            );
+            console.log(`✓ Timing source: LRC (${entries.length} lines → ${notes.length} notes)`);
+          }
+        }
+      } catch (error) {
+        console.warn('LRC file not found or malformed, trying vocal onset detection');
+      }
+    }
+    
+    // Fallback to vocal onset detection
+    if (notes.length === 0 && audioBuffer) {
+      try {
+        const onsets = await this.lyricsManager.detectVocalOnsets(audioBuffer, {
+          bpm,
+          quantizeMode
+        });
+        
+        if (onsets.length > 0) {
+          notes = this.lyricsManager.convertOnsetsToNotes(onsets);
+          console.log(`✓ Timing source: VocalOnset (${onsets.length} onsets → ${notes.length} notes)`);
+        }
+      } catch (error) {
+        console.error('Vocal onset detection failed:', error);
+      }
+    }
+    
+    // If still no notes, generate basic chart
+    if (notes.length === 0) {
+      console.warn('No lyrics or vocal onsets detected, generating basic chart');
+      const duration = audioBuffer ? audioBuffer.duration : 10;
+      const generated = this.generateAutoChart(bpm, duration, 8);
+      notes = generated.notes;
+    }
+    
+    // Create chart object
+    const chart = {
+      title: title,
+      audio: audioPath,
+      offsetMs: 0,
+      bpm: bpm,
+      lanes: 4,
+      notes: notes,
+      timingSource: this.lyricsManager.getTimingSource()
+    };
+    
+    this.validateChart(chart);
+    this.currentChart = chart;
+    
+    return chart;
   }
 
   /**
@@ -166,6 +271,15 @@ export class ChartManager {
    */
   getCurrentChart() {
     return this.currentChart;
+  }
+
+  /**
+   * Get timing source display name
+   * 
+   * @returns {string} Timing source name
+   */
+  getTimingSourceDisplay() {
+    return this.lyricsManager.getTimingSourceDisplay();
   }
 
   /**

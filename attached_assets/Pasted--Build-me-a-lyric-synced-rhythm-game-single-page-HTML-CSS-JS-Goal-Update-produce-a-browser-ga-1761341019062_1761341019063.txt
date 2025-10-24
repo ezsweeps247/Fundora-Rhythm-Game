@@ -1,0 +1,134 @@
+🔊 Build me a lyric-synced rhythm game (single-page, HTML/CSS/JS)
+
+Goal: Update/produce a browser game where falling notes line up with lyrics. Use timed-lyrics (LRC) as the primary timing source; when no LRC exists, detect vocal onsets (voice band only) and map them to notes. Do not sync to bass/kick.
+
+Output structure (exact):
+/public/audio/sample1.mp3        # demo audio (royalty-free or beep track)
+/public/lyrics/sample1.lrc       # demo LRC (timed lyrics)
+/public/charts/sample1.json      # generated chart cache (optional)
+/index.html
+/style.css
+/js/main.js
+/js/audio.js
+/js/game.js
+/js/ui.js
+/js/input.js
+/js/utils.js
+/js/lyrics.js                    # NEW: LRC + vocal onset generator
+/README.md
+
+Keep existing gameplay the same:
+
+4 lanes (D/F/J/K), judgement windows (Perfect/Great/Good/Miss), combo, score, accuracy, pause(P), restart(R), results screen, settings, localStorage.
+
+Only change how notes[] are generated.
+
+1) Primary timing: LRC → syllables → notes
+
+Add /js/lyrics.js with:
+
+parseLRC(text): Array<{ timeMs:number, text:string }>
+
+syllabify(text, langHint='auto'): string[]
+
+EN: split words, then rough vowel-cluster chunks /[aeiouy]+/i.
+
+KO: treat each Hangul block as one syllable (simple regex on \uAC00-\uD7A3).
+
+generateNotesFromLRC(entries, bpm, quantizeMode='off'): Note[]
+
+For each LRC line, spread its syllables evenly until the next timestamp.
+
+If no next timestamp, assume 380ms per syllable.
+
+quantizeMode: "off" | "soft" | "hard" → snap each timestamp to nearest 1/8 note by ±(40ms soft / 0ms hard).
+
+Lane assigner (deterministic): round-robin 0→1→2→3, avoid >2 in a row; occasionally mirror (0↔3, 1↔2) when a line continues.
+
+2) Fallback timing: Vocal onset detector (voice band)
+
+In lyrics.js, add detectVocalOnsets(audioBuffer, opts): number[] using OfflineAudioContext:
+
+Chain: Biquad band-pass ~300–3400 Hz → mild compressor → frame magnitudes.
+
+Compute spectral flux every 10ms on the filtered spectrum.
+
+Mark onsets where zScore > 2.0, local maxima, and min gap 110ms.
+
+Gate by short-time energy in 300–3400 Hz; optional harmonicity proxy via autocorrelation peak 4–12ms.
+
+Optional soft quantize to BPM by ±40ms if settings.quantizeLyrics = "soft".
+
+Convert onsets to timeMs[] and assign lanes with the same rule as above.
+
+Tuning constants (top of lyrics.js):
+
+const VOICE_BAND = [300, 3400];
+const ONSET_HOP_MS = 10;
+const ONSET_MIN_GAP_MS = 110;
+const Z_THRESHOLD = 2.0;
+const SOFT_SNAP_MS = 40;
+const DEFAULT_SYLL_MS = 380;
+
+3) Chart integration
+
+On song load, try /public/lyrics/<id>.lrc.
+
+If found & parsed → build notes[] via LRC path.
+
+Else → run vocal-onset fallback.
+
+Produce standard chart object:
+
+{ title, audio, offsetMs: 0, bpm: 120, lanes: 4, notes: Array<{timeMs,lane}> }
+
+
+Cache the last generated chart to /public/charts/<id>.json (optional) so reloads are instant.
+
+Print to console: Timing source: LRC or Timing source: VocalOnset.
+
+4) UI/Settings updates
+
+Song Select looks for matching .lrc.
+
+Settings panel:
+
+“Lyrics timing (if available)” → default ON
+
+“Quantize lyrics” → Off / Soft / Hard (default Off)
+
+“Lyric language hint” → Auto / EN / KO (affects syllabify)
+
+In Results, show Timing source used.
+
+5) Error handling
+
+Malformed LRC → toast: “Lyrics file couldn’t be parsed; using vocal timing instead.”
+
+If OfflineAudioContext fails (quota), do an online pre-scan for first 60s, then stream-detect.
+
+6) Demo content (include)
+
+/public/audio/sample1.mp3 (royalty-free stub or generated beep-melody).
+
+/public/lyrics/sample1.lrc:
+
+[00:01.00] Lo-rem i-psum do-lor
+[00:03.20] si-met con-se-cte-tur
+[00:05.10]  한-글-가-사 가-나-다
+
+
+Show that notes clearly align with the syllable flow (not kicks).
+
+7) Acceptance checklist
+
+Run → start sample song → notes fall in sync with lyric syllables.
+
+Removing the .lrc still yields lyric-like timing via the voice-band onset detector (not bass).
+
+Toggling Quantize changes feel (off = natural, soft = gentle snap, hard = strict grid).
+
+Game loop/judgement/HUD unchanged; code has Korean comments for beginners.
+
+Deliverables: all files above, clean modular JS, generous comments, and a README section “Make notes follow your lyrics (.lrc)” with a 60-second how-to. Print a console banner:
+DONE • Notes follow LYRICS (LRC > VocalOnset). Keys: D F J K • P Pause • R Restart.

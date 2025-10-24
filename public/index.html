@@ -100,6 +100,10 @@
             <span id="final-accuracy" class="result-value" data-testid="text-final-accuracy">0%</span>
           </div>
         </div>
+        <div class="timing-source-display">
+          <span class="timing-source-label">Timing:</span>
+          <span id="timing-source" class="timing-source-value" data-testid="text-timing-source">Manual/BPM</span>
+        </div>
         <div class="results-judgments">
           <div class="judgment-count">
             <span class="judgment-label perfect">PERFECT</span>
@@ -145,6 +149,38 @@
           </label>
           <input type="range" id="offset-slider" min="-100" max="100" step="5" value="0" class="slider" data-testid="slider-offset">
           <p class="settings-hint">Adjust if notes feel early/late</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">
+            LYRICS TIMING
+            <span id="lyrics-enabled-value" class="settings-value" data-testid="text-lyrics-enabled">ON</span>
+          </label>
+          <select id="lyrics-enabled-select" class="settings-select" data-testid="select-lyrics-enabled">
+            <option value="true">ON</option>
+            <option value="false">OFF</option>
+          </select>
+          <p class="settings-hint">Use .lrc files when available</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">QUANTIZE LYRICS</label>
+          <select id="quantize-select" class="settings-select" data-testid="select-quantize">
+            <option value="off">Off (Natural)</option>
+            <option value="soft">Soft (±40ms snap)</option>
+            <option value="hard">Hard (Grid lock)</option>
+          </select>
+          <p class="settings-hint">Snap timing to rhythm grid</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">LYRIC LANGUAGE</label>
+          <select id="lang-hint-select" class="settings-select" data-testid="select-lang-hint">
+            <option value="auto">Auto-detect</option>
+            <option value="EN">English</option>
+            <option value="KO">한국어 (Korean)</option>
+          </select>
+          <p class="settings-hint">Syllable detection method</p>
         </div>
 
         <div class="settings-section">

@@ -40,12 +40,19 @@ export class UIManager {
       volumeValue: document.getElementById('volume-value'),
       offsetSlider: document.getElementById('offset-slider'),
       offsetValue: document.getElementById('offset-value'),
+      lyricsEnabledSelect: document.getElementById('lyrics-enabled-select'),
+      lyricsEnabledValue: document.getElementById('lyrics-enabled-value'),
+      quantizeSelect: document.getElementById('quantize-select'),
+      langHintSelect: document.getElementById('lang-hint-select'),
     };
     
     // Current settings (will be loaded from localStorage)
     this.settings = {
       volume: 0.7,        // 70%
       audioOffset: 0,     // 0ms
+      useLyrics: true,    // Use lyrics timing when available
+      quantizeMode: 'off', // 'off', 'soft', 'hard'
+      langHint: 'auto',   // 'auto', 'EN', 'KO'
     };
     
     // Load settings from storage
@@ -147,6 +154,7 @@ export class UIManager {
       maxCombo,
       accuracy,
       judgments,
+      timingSource,
     } = results;
     
     // Calculate grade
@@ -163,6 +171,12 @@ export class UIManager {
     document.getElementById('great-count').textContent = judgments.great;
     document.getElementById('good-count').textContent = judgments.good;
     document.getElementById('miss-count').textContent = judgments.miss;
+    
+    // Update timing source
+    const timingSourceElement = document.getElementById('timing-source');
+    if (timingSourceElement && timingSource) {
+      timingSourceElement.textContent = timingSource;
+    }
     
     // Save best score if this is a new record
     this.saveBestScore(results);
@@ -182,6 +196,16 @@ export class UIManager {
     // Audio offset slider and display
     this.settingsElements.offsetSlider.value = this.settings.audioOffset;
     this.settingsElements.offsetValue.textContent = `${this.settings.audioOffset}ms`;
+    
+    // Lyrics timing select
+    this.settingsElements.lyricsEnabledSelect.value = this.settings.useLyrics.toString();
+    this.settingsElements.lyricsEnabledValue.textContent = this.settings.useLyrics ? 'ON' : 'OFF';
+    
+    // Quantize mode select
+    this.settingsElements.quantizeSelect.value = this.settings.quantizeMode;
+    
+    // Language hint select
+    this.settingsElements.langHintSelect.value = this.settings.langHint;
   }
 
   /**
@@ -312,6 +336,22 @@ export class UIManager {
       if (callbacks.onOffsetChange) {
         callbacks.onOffsetChange(offset);
       }
+    });
+    
+    // Lyrics enabled select
+    this.settingsElements.lyricsEnabledSelect.addEventListener('change', (e) => {
+      const useLyrics = e.target.value === 'true';
+      this.updateSetting('useLyrics', useLyrics);
+    });
+    
+    // Quantize mode select
+    this.settingsElements.quantizeSelect.addEventListener('change', (e) => {
+      this.updateSetting('quantizeMode', e.target.value);
+    });
+    
+    // Language hint select
+    this.settingsElements.langHintSelect.addEventListener('change', (e) => {
+      this.updateSetting('langHint', e.target.value);
     });
   }
 

@@ -327,6 +327,9 @@ export class Game {
     this.audio.stop();
     this.stopGameLoop();
     
+    // Get timing source from chart manager
+    const timingSource = this.chart.getTimingSourceDisplay();
+    
     // Show results
     this.ui.showResults({
       score: this.score,
@@ -334,6 +337,7 @@ export class Game {
       accuracy: this.calculateAccuracy(),
       judgments: { ...this.judgments },
       songTitle: this.currentChart.title,
+      timingSource: timingSource,
     });
   }
 

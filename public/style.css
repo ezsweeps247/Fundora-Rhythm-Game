@@ -379,9 +379,28 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
   border-bottom: 1px solid var(--border-color);
+}
+
+.timing-source-display {
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.timing-source-label {
+  color: var(--text-tertiary);
+  margin-right: var(--spacing-sm);
+}
+
+.timing-source-value {
+  color: var(--primary);
+  font-weight: 600;
 }
 
 .result-item {
@@ -522,6 +541,29 @@ body {
 .slider::-moz-range-thumb:hover {
   background: var(--primary-hover);
   transform: scale(1.1);
+}
+
+.settings-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.settings-select:hover {
+  border-color: var(--primary);
+}
+
+.settings-select:focus {
+  border-color: var(--primary);
+  background: var(--bg-primary);
 }
 
 .settings-hint {

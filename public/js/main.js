@@ -51,8 +51,36 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   const selectedSong = songSelect.value;
   
   try {
-    // Load the selected chart
-    const chart = await chartManager.loadChart(`/charts/${selectedSong}.json`);
+    const settings = uiManager.getSettings();
+    
+    // Load audio file first to get AudioBuffer for vocal onset detection
+    const audioPath = `/audio/${selectedSong}.mp3`;
+    let audioBuffer = null;
+    
+    try {
+      const response = await fetch(audioPath);
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        await audioContext.close();
+      }
+    } catch (error) {
+      console.warn('Could not load audio for analysis:', error.message);
+    }
+    
+    // Load chart with lyrics support
+    const chart = await chartManager.loadChartWithLyrics(
+      selectedSong,
+      audioPath,
+      audioBuffer,
+      {
+        useLyrics: settings.useLyrics,
+        quantizeMode: settings.quantizeMode,
+        langHint: settings.langHint
+      }
+    );
+    
     game.setChart(chart);
     
     // Start the game
@@ -238,7 +266,11 @@ keyButtons.forEach(button => {
   button.textContent = inputManager.getDisplayKey(lane);
 });
 
-console.log('🎮 Rhythm Game initialized!');
+console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
+console.log('%cDONE • Notes follow LYRICS (LRC > VocalOnset)', 'color: #ff00ff; font-weight: bold; font-size: 14px');
+console.log('%cKeys: D F J K • P Pause • R Restart', 'color: #00ffff; font-weight: bold');
+console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
+console.log('🎮 Rhythm Game initialized with LYRIC-SYNC support!');
 console.log('📝 Controls: D / F / J / K');
 console.log('⏸️  Pause: P | Restart: R | Menu: ESC');
 console.log('🎵 Ready to play!');
