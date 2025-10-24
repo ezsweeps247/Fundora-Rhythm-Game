@@ -262,6 +262,37 @@ export class AudioManager {
   }
 
   /**
+   * Get song time at the EXACT moment of an input event (FRAME-INDEPENDENT JUDGMENT)
+   * Uses event.timeStamp (performance time) to calculate precise song time
+   * without relying on render loop timing
+   * 
+   * This is critical for accurate rhythm game judgment:
+   * - event.timeStamp is captured at the moment of input
+   * - Render loop can run at variable fps (16ms-60ms jitter)
+   * - Using render time would add ±8-30ms error
+   * 
+   * @param {number} eventTimeStamp - event.timeStamp from DOM event (DOMHighResTimeStamp)
+   * @returns {number} Song time in milliseconds at the event moment
+   */
+  songTimeAtEventMs(eventTimeStamp) {
+    if (!this.isPlaying) {
+      return this.pausedAtMs;
+    }
+    
+    // Get current song time and performance time for calibration
+    const nowSong = this.songTimeMs();
+    const perfNow = performance.now();
+    
+    // Calculate time delta between event and now
+    // eventTimeStamp and perfNow are both in Performance timeline
+    const deltaMs = eventTimeStamp - perfNow;
+    
+    // Adjust song time by the delta (negative = event in past)
+    // This gives us song time at the exact moment of the event
+    return nowSong + deltaMs;
+  }
+
+  /**
    * Drift compensation - corrects accumulated timing errors
    * Resamples timing anchor to prevent drift over long playback
    * 

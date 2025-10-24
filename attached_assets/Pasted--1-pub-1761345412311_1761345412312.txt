@@ -1,0 +1,155 @@
+목표: 노트가 히트라인에 도착하는 시점과 플레이어가 키를 누르는 판정 시점이 가사(음절) 타이밍과 일치하도록, 오디오-렌더-입력 타임라인을 재설계/보정한다.
+
+1차 소스: /public/lyrics/<songId>.lrc (LRC 타임스탬프)
+
+LRC가 없으면 보컬 대역(onset) 근처 미세보정만 사용(킥/베이스 금지)
+
+“느낌이 어긋난다”의 주 원인(지연, 퍼셉추얼 센터, 이벤트 타임스탬프, 드리프트)을 전부 처리
+
+✅ 해야 할 변경 (핵심 8가지)
+1) 단일 기준 시계 + 이벤트 시점 정밀 캡처
+
+audio.js에 오디오 기준 절대시간(ms) 반환:
+
+let ctx, startCtxTime = 0, startSongTimeMs = 0, pausedAtMs = 0;
+let audioOffsetMs = (settings.audioOffsetMs ?? 0);   // 사용자 보정용
+export function songTimeMs() {
+  const ctxNow = ctx.getOutputTimestamp?.().contextTime ?? ctx.currentTime;
+  return startSongTimeMs + (ctxNow - startCtxTime) * 1000 + audioOffsetMs;
+}
+
+
+키 입력 순간의 곡 시간을 프레임 의존 없이 직접 구함:
+
+export function songTimeAtEventMs(eventTimeStamp) {
+  // event.timeStamp는 Performance Time Origin 기준이므로, 시작 시 perfStart 저장
+  const ctxNow = ctx.getOutputTimestamp?.().contextTime ?? ctx.currentTime;
+  const nowSong = songTimeMs();
+  const perfNow = performance.now();
+  // 오디오·퍼포먼스 축 보정(근사): 지금 곡 시간에서 (이벤트가 지금보다 과거)만큼 되돌림
+  const deltaMs = eventTimeStamp - perfNow;
+  return nowSong + deltaMs; // 음수(과거)면 과거 시점으로 보정
+}
+
+
+keydown에서 songTimeAtEventMs(e.timeStamp)로 판정 수행(렌더 루프 시각 사용 금지).
+
+2) Approach 모델을 절대시간 기반으로
+
+APPROACH_MS = 1200 고정(설정 가능)
+
+위치는 속도적분이 아니라 타임스탬프에서 비율로 직산:
+
+const t = (songTimeMs() - (note.targetMs - APPROACH_MS)) / APPROACH_MS; // 0→1
+note.y = SPAWN_Y + clamp01(t) * (HITLINE_Y - SPAWN_Y);
+// targetMs 시점(t==1)에 정확히 히트라인 도착
+
+3) 퍼셉추얼 센터(Perceptual Center) 선행 보정
+
+보컬은 실제 발화 인지가 앞/뒤로 치우침. LRC 타임스탬프는 자막용인 경우가 많아 늦게 느껴질 수 있음.
+
+전역 상수:
+
+const PERCEPTUAL_CENTER_MS = -35; // 가사 음절을 약 35ms 앞당겨 타겟으로 사용
+
+
+effectiveTargetMs = rawLyricMs + PERCEPTUAL_CENTER_MS로 모든 음절 타겟을 보정(설정에서 ±0~80 조절 가능).
+
+4) 마이크로(±100ms) 보컬 온셋 재정렬
+
+LRC가 있더라도 각 음절 주변(±100ms)에서 보컬 대역(300~3400Hz) 스펙트럴 플럭스/에너지 피크를 탐색해 가장 강한 발성 시작점으로 effectiveTargetMs를 미세 조정:
+
+const SEARCH_WIN_MS = 100, VOICE_BAND=[300,3400];
+// OfflineAudioContext로 해당 구간만 필터링→스펙트럴 플럭스 계산 → 최댓값 프레임을 찾고
+effectiveTargetMs = approxPeakMs(effectiveTargetMs, SEARCH_WIN_MS, VOICE_BAND);
+
+
+이 보정은 킥/베이스 대역을 배제하므로 가창 리듬에 더 붙음.
+
+5) 플레이어 체감 바이어스 자동 보정(Adaptive Bias)
+
+초반 24히트까지 평균 판정 오차(early/late)를 추적해 playerBiasMs를 갱신:
+
+let playerBiasMs = 0; // +면 늦게 누르는 경향
+// 각 판정 후: playerBiasMs = lerp(playerBiasMs, deltaMs, 0.08)  // 천천히 수렴
+// 판정 시에는 delta = (eventSongMs + playerBiasMs) - note.targetMs;
+
+
+사용자가 “늘 조금 늦게/빠르게 치는” 경향을 자연스럽게 중화.
+
+6) 정확한 판정은 ‘시간차’로만 (화면 위치와 분리)
+
+판정:
+
+const delta = (eventSongMs + playerBiasMs) - effectiveTargetMs;
+// Perfect/Great/Good/Miss는 기존 윈도우 (예: ±35/±70/±110ms)
+
+
+화면 좌표는 장식일 뿐, 판정은 오직 시간 기준.
+
+7) 드리프트·탭 전환 회복
+
+3~5초마다 getOutputTimestamp() 기반으로 누적 오차를 샘플링, startSongTimeMs를 미세 보정(±2ms 초과 시만).
+
+탭 백그라운드 복귀 시 한 프레임 동안 히트라인 스냅 후 정상화.
+
+8) 설정 & 디버그
+
+Settings에 추가:
+
+“Audio Offset(ms)” (−120~+120, step 5)
+
+“Perceptual Center(ms)” (−80~+40, 기본 −35)
+
+“Adaptive Bias” on/off (기본 on)
+
+디버그 HUD(토글): Δms, playerBiasMs, timing source: LRC/microVocal.
+
+🔁 LRC & 가사 음절 처리 (요약)
+
+/js/lyrics.js:
+
+parseLRC()로 [mm:ss.xx] 라인 파싱 → {timeMs,text} 배열
+
+syllabify(text, langHint)로 음절 분해(EN: 모음군, KO: 한글 음절 블록)
+
+각 음절 rawLyricMs를 균등 분배(다음 라인 타임스탬프까지), 그 후
+
++ PERCEPTUAL_CENTER_MS
+
+approxPeakMs()로 ±100ms 내 보컬피크로 미세 조정
+
+이렇게 얻은 effectiveTargetMs를 notes[]의 targetMs로 사용
+
+LRC가 없어도 기존 “보컬 대역 근사 온셋” 추출기가 있으면 그 결과에만 미세조정을 적용(킥/베이스 금지).
+
+🧪 수용 기준 (Acceptance)
+
+샘플 곡에서 발음 시작/강세와 키 입력 판정 피드백이 체감상 겹친다(±10~20ms 이내).
+
+Audio Offset/Perceptual Center를 조정하면 전체 타이밍이 논리적으로 이동.
+
+초반 20~30히트 후에는 playerBiasMs가 안정되고 일관된 “딱 맞음” 느낌.
+
+탭을 바꿨다 돌아와도 타이밍이 즉시 회복.
+
+🔧 구현 체크리스트
+
+ songTimeAtEventMs(e.timeStamp)로 판정 시각 계산
+
+ 위치 계산을 절대시간 비율로 전환
+
+ PERCEPTUAL_CENTER_MS 적용
+
+ approxPeakMs()로 ±100ms 보컬피크 미세정렬
+
+ playerBiasMs 적응 보정(옵션)
+
+ 드리프트 샘플링 보정
+
+ Settings & 디버그 HUD 추가
+
+🖨️ 완료 배너
+
+구현 완료 시 콘솔에 출력:
+SYNC FEEL FIXED ✅ • keys align to LYRICS (perceptual+micro onset+adaptive). D/F/J/K • P Pause • R Restart
