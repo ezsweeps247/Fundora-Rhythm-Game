@@ -1,0 +1,130 @@
+0) 프로젝트 구조(이대로 생성)
+/public
+  /audio/sample1.mp3        (없으면 WebAudio 비프톤으로 대체)
+  /charts/sample1.json
+/index.html
+/style.css
+/js/main.js
+/js/audio.js
+/js/chart.js
+/js/game.js
+/js/input.js
+/js/ui.js
+/js/utils.js
+/README.md
+
+
+샘플 MP3가 없을 경우에도 바로 실행되도록 audio.js에서 비프톤 생성으로 자동 대체.
+
+1) 게임 개요
+
+장르: 키보드 리듬 게임 (노트가 4개 레인으로 내려오고, D/F/J/K 타이밍 입력)
+
+판정: Perfect / Great / Good / Miss
+
+시스템: 콤보, 점수, 정확도, 결과화면, 일시정지(P), 재시작(R), 메뉴(Esc)
+
+설정: 볼륨, 오디오 오프셋(ms), 키 재맵, 로컬스토리지 저장
+
+반응형 중앙 정렬, 고대비 테마(가독성 우선)
+
+2) 차트 JSON 스키마(샘플 1개 포함)
+
+/public/charts/sample1.json
+
+{
+  "title": "Sample 1",
+  "audio": "/public/audio/sample1.mp3",
+  "offsetMs": 0,
+  "bpm": 120,
+  "lanes": 4,
+  "notes": [
+    { "timeMs": 1000, "lane": 0 },
+    { "timeMs": 1250, "lane": 1 },
+    { "timeMs": 1500, "lane": 2 },
+    { "timeMs": 1750, "lane": 3 }
+  ]
+}
+
+
+오디오 파일이 없으면 audio 경로는 무시하고 비프톤 패턴을 재생.
+
+노트는 시간 오름차순.
+
+3) 핵심 구현
+
+index.html: 상단 메뉴(노래 선택/Start/Settings), 중앙 Canvas(게임), 하단 진행바.
+
+style.css: 심플/고대비, 캔버스 중앙 정렬, 폰트 기본체, 모바일도 화면 맞춤.
+
+audio.js
+
+Web Audio API로 오디오 로드/재생/일시정지/현재시간(ms) 제공.
+
+getSongTimeMs(), play(), pause(), seek(ms), setVolume(0~1).
+
+audioOffsetMs(기본 0) 적용. MP3 없으면 비프톤 시퀀스 생성(120 BPM 기준 4마디).
+
+chart.js
+
+차트 JSON 로드/검증, 노트 정렬.
+
+간단 자동차트 옵션: 오디오 없을 때 8분음표 기준으로 레인에 라운드로빈 배치.
+
+(보너스) 재생 중 키 입력 타임스탬프를 기록하여 JSON 다운로드(Recorder 모드).
+
+game.js
+
+상태 머신: MENU → PLAYING → PAUSED → RESULTS.
+
+approachTimeMs = 1200 기본. 노트 Y 위치 = (노트시간 - 현재곡시간) 기반으로 계산.
+
+Miss 처리: 히트라인을 지나면 자동 Miss.
+
+input.js
+
+기본 키맵: D(0) / F(1) / J(2) / K(3). 설정에서 재맵 가능.
+
+utils.js
+
+상수 및 헬퍼: JUDGE_WINDOWS = { perfect:35, great:70, good:110 } (ms), clamp, lerp 등.
+
+판정 로직
+
+키 입력 시 해당 레인의 가장 가까운 미처리 노트 1개만 판정.
+
+점수: Perfect 1000 / Great 700 / Good 300 / Miss 0.
+
+콤보: Miss에서 0으로 리셋. 정확도(간단 가중 평균 or 퍼센트).
+
+ui.js
+
+HUD: 점수/콤보/정확도/판정 텍스트(페이드 아웃).
+
+메뉴/설정/결과 화면 DOM 구성, 버튼 핸들러.
+
+설정: 볼륨 슬라이더, 오디오 오프셋 −100~+100ms (5ms 단위), 키 재맵.
+
+로컬스토리지: 최고 점수/설정 저장 & 로드.
+
+README.md
+
+① 실행법(그냥 Run) ② 조작키 ③ 설정 설명 ④ 차트 만드는 법(timeMs/lane 편집)
+
+판정/어프로치 조정 팁.
+
+4) 수용 기준(체크리스트)
+
+ Run 후 메뉴 표시, 샘플 차트로 Start 가능.
+
+ 4레인/히트라인/노트 하강/판정/콤보/점수/정확도 동작.
+
+ P(일시정지), R(재시작), Esc(메뉴) 동작.
+
+ 결과화면: 점수, Max Combo, Accuracy, 각 판정 횟수, Grade(S/A/B/C).
+
+ 설정: 볼륨/오프셋/키 재맵 저장 및 즉시 반영.
+
+ MP3가 없어도 비프톤으로 플레이 가능.
+
+ 주석이 초보자 눈높이로 충분히 상세.
