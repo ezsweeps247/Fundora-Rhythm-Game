@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chart Generator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #ffffff;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+      color: #00ffff;
+    }
+    
+    .subtitle {
+      color: #888;
+      margin-bottom: 30px;
+    }
+    
+    .section {
+      background: #1a1a1a;
+      border: 2px solid #333;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    
+    .section h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: #ff00ff;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #ccc;
+      font-weight: 600;
+    }
+    
+    input, select {
+      width: 100%;
+      padding: 12px;
+      background: #0a0a0a;
+      border: 2px solid #333;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 16px;
+    }
+    
+    input:focus, select:focus {
+      outline: none;
+      border-color: #00ffff;
+    }
+    
+    .hint {
+      color: #666;
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    
+    button {
+      padding: 14px 28px;
+      background: #00ffff;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: #00cccc;
+      transform: translateY(-2px);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .output {
+      background: #0a0a0a;
+      border: 2px solid #333;
+      border-radius: 4px;
+      padding: 16px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre;
+      color: #0f0;
+    }
+    
+    .info-box {
+      background: #1a3a4a;
+      border-left: 4px solid #00ffff;
+      padding: 16px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+    
+    .warning-box {
+      background: #4a3a1a;
+      border-left: 4px solid #ffaa00;
+      padding: 16px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .success {
+      color: #0f0;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Rhythm Game Chart Generator</h1>
+    <p class="subtitle">Automatically generate notes for your song</p>
+    
+    <div class="warning-box">
+      <strong>⚠️ Note:</strong> This generator creates notes based on BPM rhythm, not the actual audio. The result will be playable but won't match specific instruments or vocals in the song. You can manually refine the chart later!
+    </div>
+    
+    <div class="section">
+      <h2>Step 1: Load Your Audio File</h2>
+      <div class="form-group">
+        <label for="audio-file">Select MP3 file from public/audio/</label>
+        <input type="text" id="audio-file" value="ROSÉ & Bruno Mars - APT. (Official Music Video).mp3" placeholder="filename.mp3">
+        <div class="hint">Enter the filename of your audio file</div>
+      </div>
+      <button id="load-audio" data-testid="button-load-audio">Load Audio</button>
+      <div id="audio-info" style="margin-top: 12px; color: #888;"></div>
+    </div>
+    
+    <div class="section">
+      <h2>Step 2: Configure Chart Settings</h2>
+      
+      <div class="form-group">
+        <label for="song-title">Song Title</label>
+        <input type="text" id="song-title" value="ROSE & BRUNO MARS - APT" placeholder="Song Name">
+      </div>
+      
+      <div class="form-group">
+        <label for="bpm">BPM (Beats Per Minute)</label>
+        <input type="number" id="bpm" value="130" min="60" max="240">
+        <div class="hint">Typical pop songs: 120-130 BPM. Fast EDM: 140+ BPM</div>
+      </div>
+      
+      <div class="form-group">
+        <label for="difficulty">Difficulty / Note Density</label>
+        <select id="difficulty">
+          <option value="easy">Easy (Quarter notes - 1 note per beat)</option>
+          <option value="normal" selected>Normal (8th notes - 2 notes per beat)</option>
+          <option value="hard">Hard (16th notes - 4 notes per beat)</option>
+          <option value="mixed">Mixed (Varied pattern)</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="pattern">Lane Pattern</label>
+        <select id="pattern">
+          <option value="random" selected>Random</option>
+          <option value="sequential">Sequential (0→1→2→3 repeat)</option>
+          <option value="alternating">Alternating (0→3→1→2 repeat)</option>
+          <option value="mirrored">Mirrored (0→1→2→3→3→2→1→0)</option>
+        </select>
+      </div>
+      
+      <button id="generate-chart" disabled data-testid="button-generate">Generate Chart</button>
+    </div>
+    
+    <div class="section" id="output-section" style="display: none;">
+      <h2>Step 3: Save Generated Chart</h2>
+      <div class="info-box">
+        Chart generated with <strong id="note-count">0</strong> notes
+      </div>
+      <div class="button-group">
+        <button id="download-chart" data-testid="button-download">Download JSON</button>
+        <button id="copy-chart" data-testid="button-copy">Copy to Clipboard</button>
+      </div>
+      <div id="success-message" class="success" style="display: none;">✓ Copied to clipboard!</div>
+      <div class="output" id="chart-output"></div>
+    </div>
+  </div>
+  
+  <audio id="audio-player" style="display: none;"></audio>
+  
+  <script>
+    let audioDuration = 0;
+    let generatedChart = null;
+    
+    // Load audio file
+    document.getElementById('load-audio').addEventListener('click', () => {
+      const filename = document.getElementById('audio-file').value;
+      const audio = document.getElementById('audio-player');
+      audio.src = `/audio/${filename}`;
+      
+      const infoDiv = document.getElementById('audio-info');
+      infoDiv.textContent = 'Loading audio...';
+      
+      audio.addEventListener('loadedmetadata', () => {
+        audioDuration = audio.duration;
+        infoDiv.innerHTML = `✓ Audio loaded: <strong>${Math.floor(audioDuration / 60)}:${Math.floor(audioDuration % 60).toString().padStart(2, '0')}</strong> (${audioDuration.toFixed(1)}s)`;
+        infoDiv.style.color = '#0f0';
+        document.getElementById('generate-chart').disabled = false;
+      });
+      
+      audio.addEventListener('error', () => {
+        infoDiv.textContent = '✗ Failed to load audio. Check filename and path.';
+        infoDiv.style.color = '#f00';
+        document.getElementById('generate-chart').disabled = true;
+      });
+    });
+    
+    // Generate chart
+    document.getElementById('generate-chart').addEventListener('click', () => {
+      const title = document.getElementById('song-title').value;
+      const filename = document.getElementById('audio-file').value;
+      const bpm = parseInt(document.getElementById('bpm').value);
+      const difficulty = document.getElementById('difficulty').value;
+      const pattern = document.getElementById('pattern').value;
+      
+      const notes = generateNotes(bpm, audioDuration, difficulty, pattern);
+      
+      generatedChart = {
+        title: title,
+        audio: filename,
+        offsetMs: 0,
+        bpm: bpm,
+        lanes: 4,
+        notes: notes
+      };
+      
+      document.getElementById('note-count').textContent = notes.length;
+      document.getElementById('chart-output').textContent = JSON.stringify(generatedChart, null, 2);
+      document.getElementById('output-section').style.display = 'block';
+    });
+    
+    // Generate notes based on BPM and pattern
+    function generateNotes(bpm, durationSeconds, difficulty, pattern) {
+      const notes = [];
+      const beatDuration = (60 / bpm) * 1000; // ms per beat
+      
+      let noteInterval;
+      switch (difficulty) {
+        case 'easy':
+          noteInterval = beatDuration; // Quarter notes
+          break;
+        case 'normal':
+          noteInterval = beatDuration / 2; // 8th notes
+          break;
+        case 'hard':
+          noteInterval = beatDuration / 4; // 16th notes
+          break;
+        case 'mixed':
+          // Will vary below
+          noteInterval = beatDuration / 2;
+          break;
+      }
+      
+      let currentTime = 1000; // Start after 1 second
+      let laneIndex = 0;
+      const endTime = durationSeconds * 1000 - 1000; // End 1 second before song ends
+      
+      while (currentTime < endTime) {
+        let lane;
+        
+        switch (pattern) {
+          case 'random':
+            lane = Math.floor(Math.random() * 4);
+            break;
+          case 'sequential':
+            lane = laneIndex % 4;
+            laneIndex++;
+            break;
+          case 'alternating':
+            const altPattern = [0, 3, 1, 2];
+            lane = altPattern[laneIndex % 4];
+            laneIndex++;
+            break;
+          case 'mirrored':
+            const mirrorPattern = [0, 1, 2, 3, 3, 2, 1, 0];
+            lane = mirrorPattern[laneIndex % 8];
+            laneIndex++;
+            break;
+        }
+        
+        notes.push({
+          timeMs: Math.round(currentTime),
+          lane: lane
+        });
+        
+        // For mixed difficulty, vary the interval
+        if (difficulty === 'mixed') {
+          const variations = [beatDuration / 4, beatDuration / 2, beatDuration];
+          const randomVariation = variations[Math.floor(Math.random() * variations.length)];
+          currentTime += randomVariation;
+        } else {
+          currentTime += noteInterval;
+        }
+      }
+      
+      return notes;
+    }
+    
+    // Download chart
+    document.getElementById('download-chart').addEventListener('click', () => {
+      const chartName = document.getElementById('song-title').value.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const blob = new Blob([JSON.stringify(generatedChart, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${chartName}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    
+    // Copy to clipboard
+    document.getElementById('copy-chart').addEventListener('click', () => {
+      const text = JSON.stringify(generatedChart, null, 2);
+      navigator.clipboard.writeText(text).then(() => {
+        const msg = document.getElementById('success-message');
+        msg.style.display = 'block';
+        setTimeout(() => {
+          msg.style.display = 'none';
+        }, 2000);
+      });
+    });
+  </script>
+</body>
+</html>
