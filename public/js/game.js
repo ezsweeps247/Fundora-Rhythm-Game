@@ -17,10 +17,13 @@ import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   HIT_LINE_POSITION,
+  SPAWN_POSITION,
   APPROACH_TIME_MS,
+  PREWARM_MS,
   JUDGE_WINDOWS,
   calculateJudgment,
   getScoreForJudgment,
+  clamp01,
 } from './utils.js';
 
 // Game states
@@ -192,12 +195,13 @@ export class Game {
 
   /**
    * Judge a note when a lane key is pressed
-   * Finds the closest unjudged note in the lane and calculates judgment
+   * Uses ONLY time delta (songTimeMs() - targetMs) for judgment
+   * Screen position (y) is purely visual and not used for judgment
    * 
    * @param {number} lane - Lane index (0-3)
    */
   judgeNote(lane) {
-    const currentTime = this.audio.getSongTimeMs();
+    const now = this.audio.songTimeMs();
     
     // Find all unjudged notes in this lane within judgment window
     const maxWindow = JUDGE_WINDOWS.good;
@@ -205,8 +209,9 @@ export class Game {
       if (note.lane !== lane || note.judged) {
         return false;
       }
-      const timeDiff = note.timeMs - currentTime;
-      return Math.abs(timeDiff) <= maxWindow;
+      // TIME DELTA ONLY - screen position irrelevant
+      const delta = note.timeMs - now;
+      return Math.abs(delta) <= maxWindow;
     });
     
     if (candidateNotes.length === 0) {
@@ -214,21 +219,21 @@ export class Game {
       return;
     }
     
-    // Find the closest note
+    // Find the closest note (by time delta)
     let closestNote = candidateNotes[0];
-    let closestDiff = Math.abs(closestNote.timeMs - currentTime);
+    let closestDiff = Math.abs(closestNote.timeMs - now);
     
     for (const note of candidateNotes) {
-      const diff = Math.abs(note.timeMs - currentTime);
+      const diff = Math.abs(note.timeMs - now);
       if (diff < closestDiff) {
         closestNote = note;
         closestDiff = diff;
       }
     }
     
-    // Calculate judgment
-    const timeDiff = closestNote.timeMs - currentTime;
-    const judgment = calculateJudgment(timeDiff);
+    // Calculate judgment based ONLY on time delta
+    const delta = now - closestNote.timeMs; // Positive = late, negative = early
+    const judgment = calculateJudgment(delta);
     
     // Mark note as judged
     closestNote.judged = true;
@@ -268,15 +273,16 @@ export class Game {
 
   /**
    * Auto-judge missed notes
-   * Called each frame to check for notes that passed the hit line
+   * Called each frame to check for notes that passed the judgment window
+   * Uses PRECISE TIMING - based on songTimeMs(), not screen position
    */
   checkMissedNotes() {
-    const currentTime = this.audio.getSongTimeMs();
+    const now = this.audio.songTimeMs();
     const missWindow = JUDGE_WINDOWS.good;
     
     this.currentChart.notes.forEach(note => {
-      if (!note.judged && currentTime > note.timeMs + missWindow) {
-        // This note was missed
+      if (!note.judged && now > note.timeMs + missWindow) {
+        // This note was missed (passed the judgment window)
         note.judged = true;
         this.applyJudgment('miss');
       }
@@ -357,8 +363,8 @@ export class Game {
     // Check for missed notes
     this.checkMissedNotes();
     
-    // Update progress bar
-    const progress = (this.audio.getSongTimeMs() / this.audio.getDuration()) * 100;
+    // Update progress bar using precise timing
+    const progress = (this.audio.songTimeMs() / this.audio.getDuration()) * 100;
     this.ui.updateProgress(Math.min(progress, 100));
     
     // Check if song ended
@@ -384,9 +390,11 @@ export class Game {
     ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, width, height);
     
-    // Calculate lane width
+    // Calculate lane width and positions
     const laneWidth = width / 4;
+    const spawnY = height * SPAWN_POSITION;
     const hitLineY = height * HIT_LINE_POSITION;
+    const travelPx = hitLineY - spawnY;
     
     // Draw lane backgrounds with flash effect
     for (let i = 0; i < 4; i++) {
@@ -411,17 +419,30 @@ export class Game {
       ctx.stroke();
     }
     
-    // Draw notes
-    const currentTime = this.audio.getSongTimeMs();
+    // Draw notes using PRECISE TIME-BASED POSITIONING
+    const now = this.audio.songTimeMs();
+    
+    // Filter notes: spawn at targetMs - APPROACH_TIME_MS - PREWARM_MS
     const visibleNotes = this.currentChart.notes.filter(note => {
-      return !note.judged && note.timeMs >= currentTime && note.timeMs <= currentTime + APPROACH_TIME_MS;
+      const spawnTime = note.timeMs - APPROACH_TIME_MS - PREWARM_MS;
+      return !note.judged && now >= spawnTime;
     });
     
     visibleNotes.forEach(note => {
-      // Calculate Y position based on time
-      const timeUntilHit = note.timeMs - currentTime;
-      const progress = 1 - (timeUntilHit / APPROACH_TIME_MS);
-      const y = progress * hitLineY;
+      // PRECISE POSITIONING: t = (now - (targetMs - APPROACH_MS)) / APPROACH_MS
+      // t == 0: note at spawn position
+      // t == 1: note at hitline (exactly at targetMs)
+      const t = (now - (note.timeMs - APPROACH_TIME_MS)) / APPROACH_TIME_MS;
+      const y = spawnY + clamp01(t) * travelPx;
+      
+      // If t > 1, note has passed hitline - snap to hitline for judgment
+      if (t > 1.05) {
+        // Note is far past hitline, mark as judged (miss)
+        if (!note.judged) {
+          note.judged = true;
+        }
+        return; // Don't render notes that are too far past
+      }
       
       // Draw note
       const x = note.lane * laneWidth;
@@ -462,6 +483,68 @@ export class Game {
       ctx.fillStyle = LANE_COLORS[i];
       ctx.fillText(key, x, hitLineY);
     }
+    
+    // DEBUG HUD - Timing information (top-left corner)
+    this.renderDebugHUD(ctx, now);
+  }
+
+  /**
+   * Render debug HUD showing precise timing information
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {number} now - Current song time in ms
+   */
+  renderDebugHUD(ctx, now) {
+    // Find next unjudged note
+    const nextNote = this.currentChart.notes.find(note => !note.judged);
+    
+    // Get drift statistics from audio manager
+    const driftStats = this.audio.getDriftStats();
+    
+    // Get timing source from chart
+    const timingSource = this.chart.getTimingSourceDisplay();
+    
+    // Setup text rendering
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    
+    let y = 10;
+    const lineHeight = 16;
+    
+    // Background panel
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(5, 5, 240, 75);
+    
+    // Next note delta
+    if (nextNote) {
+      const delta = now - nextNote.timeMs;
+      const deltaColor = Math.abs(delta) > 25 ? '#ff4444' : '#00ff88';
+      ctx.fillStyle = deltaColor;
+      ctx.fillText(`Δnext: ${delta > 0 ? '+' : ''}${delta.toFixed(1)}ms`, 10, y);
+      
+      // Warning if consistently off
+      if (Math.abs(delta) > 25 && delta < 0 && nextNote.timeMs - now < 500) {
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillText('⚠ Check audioOffsetMs or APPROACH_MS', 10, y + lineHeight * 4);
+      }
+    } else {
+      ctx.fillStyle = '#888888';
+      ctx.fillText('Δnext: --', 10, y);
+    }
+    y += lineHeight;
+    
+    // Drift statistics
+    ctx.fillStyle = '#00d4ff';
+    ctx.fillText(`Drift avg: ${driftStats.avg.toFixed(2)}ms`, 10, y);
+    y += lineHeight;
+    
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillText(`Drift max: ${driftStats.max.toFixed(2)}ms`, 10, y);
+    y += lineHeight;
+    
+    // Timing source
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillText(`Source: ${timingSource}`, 10, y);
   }
 
   /**

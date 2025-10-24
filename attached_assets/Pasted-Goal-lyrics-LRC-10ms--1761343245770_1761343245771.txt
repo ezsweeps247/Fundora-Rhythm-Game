@@ -1,0 +1,131 @@
+Goal: 기존 리듬 게임에서 노트(바)가 가사 타임스탬프(lyrics/LRC 기반) 에 맞춰 히트라인에 정확히 도착하도록 타이밍 엔진만 수정하라.
+
+오차 허용: ±10ms (가능하면 더 타이트)
+
+베이스/킥 동기화 사용 금지. 가사 타임만 기준.
+
+기존 판정/콤보/HUD 등은 그대로 유지.
+
+1) 단일 기준 시계(Timebase) 도입
+
+audio.js(또는 시간 관련 모듈)에 **songTimeMs()**를 구현/교체:
+
+let ctx, bufferSource, startCtxTime = 0, startSongTimeMs = 0, pausedAtMs = 0;
+let audioOffsetMs = settings.audioOffsetMs || 0;  // 설정에서 로드, 기본 0
+
+export function songTimeMs() {
+  // 오디오 시작 이후의 절대 곡 시간(ms)
+  const ctxNow = ctx.getOutputTimestamp?.().contextTime ?? ctx.currentTime;
+  const runningMs = (ctxNow - startCtxTime) * 1000;
+  return startSongTimeMs + runningMs + audioOffsetMs;
+}
+
+
+중요: 재생/일시정지/탐색 시 startCtxTime/startSongTimeMs를 정확히 갱신.
+
+play(atMs) 시: startSongTimeMs = atMs; startCtxTime = ctx.currentTime;
+
+pause() 시: pausedAtMs = songTimeMs();
+
+resume() 시: startSongTimeMs = pausedAtMs; startCtxTime = ctx.currentTime;
+
+2) “Approach” 물리 모델을 엄격히 적용
+
+상수:
+
+const APPROACH_MS = 1200;  // 노트가 등장해서 히트라인까지 내려오는 시간
+const HITLINE_Y = canvas.height * 0.85;  // 히트라인 픽셀 위치(예시)
+const SPAWN_Y   = canvas.height * 0.15;  // 스폰 픽셀 위치(예시)
+const TRAVEL_PX = HITLINE_Y - SPAWN_Y;   // 이동 픽셀 거리
+
+
+스폰 시점: 각 노트의 targetMs(= 가사/음절 시각).
+
+스폰 조건: songTimeMs() >= targetMs - APPROACH_MS - PREWARM_MS
+
+PREWARM_MS는 0~50ms (렌더 큐 여유); 기본 0.
+
+매 프레임 위치:
+
+const now = songTimeMs();
+const t = (now - (note.targetMs - APPROACH_MS)) / APPROACH_MS; // 0→1
+// t == 0  : 스폰 시점(위)
+// t == 1  : 정확히 targetMs에서 히트라인 도착
+note.y = SPAWN_Y + clamp01(t) * TRAVEL_PX;
+
+
+지연/스킵 프레임 보정: t가 1을 초과하면 즉시 히트라인에 스냅 후 Miss/판정 로직으로 넘긴다.
+(렌더 FPS와 무관하게 시간 기반으로만 위치 계산)
+
+3) 판정 로직은 “도착 시각 차이”만 사용
+
+키 입력 시:
+
+const delta = songTimeMs() - note.targetMs; // ms
+// Perfect/Great/Good/Miss 윈도우는 기존 그대로, 단 delta만 기준
+
+
+화면 위치(y) 는 단지 시각화를 위한 값. 판정은 오직 시간차(delta) 로만.
+
+4) 드리프트(서서히 틀어짐) 자동 보정
+
+5초마다(또는 매 곡 2~3회) 앵커 리샘플링:
+
+// 현재 재생된 실제 버퍼 위치를 재계산해 anchor 오차를 보정
+const ctxNow = ctx.getOutputTimestamp?.().contextTime ?? ctx.currentTime;
+const expectedMs = startSongTimeMs + (ctxNow - startCtxTime) * 1000 + audioOffsetMs;
+const err = expectedMs - songTimeMs();
+if (Math.abs(err) > 2) { // 2ms 이상 누적 드리프트는 즉시 보정
+  // 보정은 startSongTimeMs를 미세 조정(시각적 튐 방지를 위해 lerp)
+  startSongTimeMs += err * 0.5; // 절반만 적용(부드럽게)
+}
+
+
+getOutputTimestamp() 가 없는 브라우저는 currentTime만 사용.
+
+5) LRC/가사 타임스탬프를 직접 사용
+
+가사 라인→음절 분해로 만든 각 음절 timestamp = targetMs 값을 그대로 쓴다.
+
+절대 비트/킥에 스냅 금지
+
+단, 옵션으로 LYRIC_QUANTIZE = 'off' | 'soft' | 'hard' 를 두되 기본 'off':
+
+off: 그대로
+
+soft: ±20ms 이내에서만 스냅
+
+hard: 1/8 그리드 강제 (기본값 아님)
+
+6) 캘리브레이션(지연 보정) UI
+
+설정에 Audio Offset(ms) 슬라이더(−100~+100 / step 5ms).
+
+이 값은 위 audioOffsetMs 에 즉시 반영. 저장은 localStorage.
+
+7) 디버그 HUD(개발용)
+
+화면 좌상단에 다음 3개 값을 렌더:
+
+Δms(next syllable) = (songTimeMs() - nextNote.targetMs).toFixed(1)
+
+avg|max drift(ms) (샘플링 기반)
+
+timing source: LRC/VocalOnset
+
+콘솔 경고: |Δms| > 25 지속 발생 시 “Check audioOffsetMs or APPROACH_MS”.
+
+8) 수용 기준(테스트)
+
+동일 곡에서 히트라인 도착 순간이 가사 발음 타이밍과 눈/귀로 일치(±10ms).
+
+FPS 변동, 탭 전환 후 복귀, 일시정지/재개에도 지연 없이 유지.
+
+Audio Offset 20ms 조정 시 도착 타이밍이 동일하게 이동.
+
+구현 중 기존 랜더코드가 “프레임마다 y += speed * dt” 처럼 속도 적분 방식이면, 절대시간 기반(t 비율) 계산으로 전면 교체할 것. 이게 핵심 수정 포인트다.
+
+주의: 새로운 비트/피크 디텍터를 추가하지 말고, 가사 타임스탬프(음절 기준) 을 진실로 간주.
+이번 변경의 목적은 “언제 스폰해서, targetMs에 정확히 도착시키는가” 이다.
+완료 후 콘솔에 다음 배너를 출력하라:
+SYNC FIXED ✅ • notes land exactly at lyric timestamps (±10ms).

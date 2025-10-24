@@ -55,9 +55,15 @@ export const GRADE_THRESHOLDS = {
 
 /**
  * Default approach time - how long notes take to reach the hit line
- * 1200ms = 1.2 seconds from top of screen to hit line
+ * 1200ms = 1.2 seconds from spawn to hit line (PRECISE TIMING)
  */
 export const APPROACH_TIME_MS = 1200;
+
+/**
+ * Prewarm time for note spawning (render queue buffer)
+ * Notes spawn slightly early to ensure smooth rendering
+ */
+export const PREWARM_MS = 0;
 
 /**
  * Default canvas dimensions
@@ -68,9 +74,17 @@ export const CANVAS_HEIGHT = 600;
 
 /**
  * Hit line position (as percentage from top)
- * 0.8 = 80% down the screen (480px in a 600px canvas)
+ * 0.85 = 85% down the screen (510px in a 600px canvas)
+ * Notes must arrive EXACTLY at this line at their targetMs timestamp
  */
-export const HIT_LINE_POSITION = 0.8;
+export const HIT_LINE_POSITION = 0.85;
+
+/**
+ * Spawn position (as percentage from top)
+ * 0.15 = 15% down the screen (90px in a 600px canvas)
+ * Notes spawn at this position APPROACH_TIME_MS before their targetMs
+ */
+export const SPAWN_POSITION = 0.15;
 
 // ============================================================
 // MATH HELPERS
@@ -89,6 +103,19 @@ export const HIT_LINE_POSITION = 0.8;
  */
 export function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Clamp a value between 0 and 1
+ * Optimized version of clamp(value, 0, 1) for common use case
+ * 
+ * @param {number} value - The value to clamp
+ * @returns {number} The clamped value between 0 and 1
+ * 
+ * Example: clamp01(1.5) returns 1.0
+ */
+export function clamp01(value) {
+  return Math.min(Math.max(value, 0), 1);
 }
 
 /**

@@ -27,13 +27,19 @@ export class AudioManager {
     this.gainNode = this.audioContext.createGain();
     this.gainNode.connect(this.audioContext.destination);
     
-    // Playback state tracking
+    // Precise timing tracking (single timebase)
     this.isPlaying = false;
-    this.startTime = 0;        // When playback started (in audio context time)
-    this.pauseTime = 0;        // Where we paused (in song time)
+    this.startCtxTime = 0;      // AudioContext time when playback started
+    this.startSongTimeMs = 0;   // Song time (ms) at playback start
+    this.pausedAtMs = 0;        // Song time (ms) where we paused
     
-    // Audio offset in milliseconds (positive = delay audio, negative = advance audio)
+    // Audio offset in milliseconds (positive = delay notes, negative = advance notes)
     this.audioOffsetMs = 0;
+    
+    // Drift compensation tracking
+    this.lastDriftCheck = 0;
+    this.driftSamples = [];
+    this.maxDrift = 0;
     
     // Flag to track if using beep tones instead of real audio
     this.usingBeepTones = false;
@@ -132,8 +138,9 @@ export class AudioManager {
 
   /**
    * Start or resume audio playback
+   * @param {number} atMs - Optional: start at specific time in ms (default: resume from pause)
    */
-  async play() {
+  async play(atMs = null) {
     if (!this.audioBuffer) {
       console.error('No audio loaded');
       return;
@@ -153,23 +160,31 @@ export class AudioManager {
     this.source.buffer = this.audioBuffer;
     this.source.connect(this.gainNode);
     
-    // Resume from where we paused (or from beginning)
-    const offset = this.pauseTime;
-    this.source.start(0, offset);
+    // Determine start time
+    const startMs = atMs !== null ? atMs : this.pausedAtMs;
+    const offsetSeconds = startMs / 1000;
     
-    // Record when we started (in audio context time)
-    this.startTime = this.audioContext.currentTime - offset;
+    // Start playback
+    this.source.start(0, offsetSeconds);
+    
+    // Record precise timing anchors
+    this.startCtxTime = this.audioContext.currentTime;
+    this.startSongTimeMs = startMs;
     this.isPlaying = true;
     
-    console.log(`Audio playback started at ${this.audioContext.currentTime.toFixed(3)}s, offset: ${offset.toFixed(3)}s`);
+    // Reset drift tracking
+    this.lastDriftCheck = this.audioContext.currentTime;
+    this.driftSamples = [];
+    this.maxDrift = 0;
+    
+    console.log(`Audio playback started at ${this.audioContext.currentTime.toFixed(3)}s, song position: ${startMs}ms`);
     
     // Handle when the audio ends naturally
     this.source.onended = () => {
       if (this.isPlaying) {
-        // Update pause time to current position before stopping
-        this.pauseTime = (this.audioContext.currentTime - this.startTime);
+        this.pausedAtMs = this.songTimeMs();
         this.isPlaying = false;
-        console.log(`Audio playback ended naturally at ${this.pauseTime.toFixed(3)}s`);
+        console.log(`Audio playback ended naturally at ${this.pausedAtMs.toFixed(1)}ms`);
       }
     };
   }
@@ -182,8 +197,8 @@ export class AudioManager {
       return;
     }
     
-    // Remember where we paused
-    this.pauseTime = this.getSongTimeMs() / 1000;
+    // Remember exact song position where we paused
+    this.pausedAtMs = this.songTimeMs();
     
     // Stop the source
     if (this.source) {
@@ -192,6 +207,7 @@ export class AudioManager {
     }
     
     this.isPlaying = false;
+    console.log(`Paused at ${this.pausedAtMs.toFixed(1)}ms`);
   }
 
   /**
@@ -206,29 +222,89 @@ export class AudioManager {
       this.pause();
     }
     
-    this.pauseTime = timeMs / 1000;
+    this.pausedAtMs = timeMs;
     
     if (wasPlaying) {
-      this.play();
+      this.play(timeMs);
     }
   }
 
   /**
-   * Get current playback time in milliseconds
-   * Adjusted for audio offset setting
+   * Get current song time in milliseconds (PRECISE TIMEBASE)
+   * Uses getOutputTimestamp() for maximum accuracy
+   * Includes drift compensation and audio offset
    * 
-   * @returns {number} Current time in milliseconds
+   * @returns {number} Current song time in milliseconds
    */
-  getSongTimeMs() {
+  songTimeMs() {
     if (!this.isPlaying) {
-      return this.pauseTime * 1000;
+      return this.pausedAtMs;
     }
     
-    // Calculate how long we've been playing
-    const elapsed = this.audioContext.currentTime - this.startTime;
+    // Use getOutputTimestamp() for precise timing when available
+    const ctxNow = this.audioContext.getOutputTimestamp
+      ? this.audioContext.getOutputTimestamp().contextTime
+      : this.audioContext.currentTime;
     
-    // Apply audio offset (this helps sync notes with audio)
-    return (elapsed * 1000) + this.audioOffsetMs;
+    // Calculate elapsed time since playback started
+    const runningMs = (ctxNow - this.startCtxTime) * 1000;
+    
+    // Compute song time with offset
+    const songTime = this.startSongTimeMs + runningMs + this.audioOffsetMs;
+    
+    // Drift compensation (every 5 seconds)
+    if (ctxNow - this.lastDriftCheck >= 5.0) {
+      this.compensateDrift(ctxNow, songTime);
+      this.lastDriftCheck = ctxNow;
+    }
+    
+    return songTime;
+  }
+
+  /**
+   * Drift compensation - corrects accumulated timing errors
+   * Resamples timing anchor to prevent drift over long playback
+   * 
+   * @param {number} ctxNow - Current audio context time
+   * @param {number} currentSongTime - Current calculated song time
+   */
+  compensateDrift(ctxNow, currentSongTime) {
+    // Calculate expected song time from audio buffer position
+    const expectedMs = this.startSongTimeMs + (ctxNow - this.startCtxTime) * 1000 + this.audioOffsetMs;
+    const drift = expectedMs - currentSongTime;
+    
+    // Track drift statistics
+    this.driftSamples.push(Math.abs(drift));
+    if (this.driftSamples.length > 10) {
+      this.driftSamples.shift(); // Keep last 10 samples
+    }
+    this.maxDrift = Math.max(this.maxDrift, Math.abs(drift));
+    
+    // Apply correction if drift exceeds threshold (2ms)
+    if (Math.abs(drift) > 2) {
+      // Smooth correction (apply 50% of drift to avoid visual jumps)
+      this.startSongTimeMs += drift * 0.5;
+      console.log(`Drift corrected: ${drift.toFixed(2)}ms → ${(drift * 0.5).toFixed(2)}ms`);
+    }
+  }
+
+  /**
+   * Get drift statistics for debugging
+   * @returns {object} Drift stats {avg, max}
+   */
+  getDriftStats() {
+    const avg = this.driftSamples.length > 0
+      ? this.driftSamples.reduce((a, b) => a + b, 0) / this.driftSamples.length
+      : 0;
+    return { avg, max: this.maxDrift };
+  }
+
+  /**
+   * Legacy compatibility: alias for songTimeMs()
+   * @deprecated Use songTimeMs() instead
+   */
+  getSongTimeMs() {
+    return this.songTimeMs();
   }
 
   /**
@@ -268,7 +344,10 @@ export class AudioManager {
       this.source = null;
     }
     this.isPlaying = false;
-    this.startTime = 0;
-    this.pauseTime = 0;
+    this.startCtxTime = 0;
+    this.startSongTimeMs = 0;
+    this.pausedAtMs = 0;
+    this.driftSamples = [];
+    this.maxDrift = 0;
   }
 }
