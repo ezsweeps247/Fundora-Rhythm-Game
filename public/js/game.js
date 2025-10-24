@@ -115,7 +115,11 @@ export class Game {
     this.ui.showScreen('game');
     
     // Load and play audio
-    const audioPath = this.currentChart.audio || '';
+    let audioPath = this.currentChart.audio || '';
+    // If audioPath is just a filename (no path), prepend /audio/
+    if (audioPath && !audioPath.startsWith('/') && !audioPath.startsWith('http')) {
+      audioPath = `/audio/${audioPath}`;
+    }
     await this.audio.loadAudio(audioPath, this.currentChart.bpm);
     await this.audio.play();
     
