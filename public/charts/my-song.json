@@ -1,0 +1,13 @@
+{
+  "title": "ROSE & BRUNO MARS - APT",
+  "audio": "ROSÉ & Bruno Mars - APT. (Official Music Video).mp3",
+  "offsetMs": 0,
+  "bpm": 120,
+  "lanes": 4,
+  "notes": [
+    { "time": 1000, "lane": 0 },
+    { "time": 1500, "lane": 1 },
+    { "time": 2000, "lane": 2 },
+    { "time": 2500, "lane": 3 }
+  ]
+}
