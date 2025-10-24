@@ -86,6 +86,37 @@ export const HIT_LINE_POSITION = 0.85;
  */
 export const SPAWN_POSITION = 0.15;
 
+/**
+ * Perceptual Center Correction (LYRIC SYNC ENHANCEMENT)
+ * Advances lyric timestamps by default 35ms to align with vocal attack perception
+ * 
+ * Why needed:
+ * - LRC timestamps are often subtitle-aligned (late for rhythm games)
+ * - Human perception of vocal "start" is ~20-50ms before actual phonation
+ * - This correction makes notes feel "locked" to the vocal syllable
+ * 
+ * Configurable in settings from -80ms to +40ms
+ */
+export const PERCEPTUAL_CENTER_MS = -35;
+
+/**
+ * Adaptive bias configuration
+ * Tracks player's early/late tendency and auto-adjusts judgment
+ */
+export const ADAPTIVE_BIAS_CONFIG = {
+  enabled: true,              // Can be toggled in settings
+  learningRate: 0.08,         // How quickly to adapt (0-1, higher = faster)
+  calibrationHits: 24,        // Number of initial hits to calibrate on
+  maxBiasMs: 50,             // Maximum bias correction allowed (±50ms)
+};
+
+/**
+ * Vocal onset detection window
+ * Search range around lyric timestamp for actual vocal attack
+ */
+export const VOCAL_ONSET_WINDOW_MS = 100;  // ±100ms search window
+export const VOCAL_FREQ_BAND = [300, 3400]; // Hz range for vocal detection (excludes kick/bass)
+
 // ============================================================
 // MATH HELPERS
 // ============================================================

@@ -76,8 +76,11 @@ export class InputManager {
           this.lanePressed[lane] = true;
           
           // Call the lane press callback if set
+          // CRITICAL: Pass event.timeStamp for precise judgment timing
+          // event.timeStamp is captured at the EXACT moment of key press
+          // This eliminates render loop jitter (±8-30ms error)
           if (this.onLanePress) {
-            this.onLanePress(lane);
+            this.onLanePress(lane, e.timeStamp);
           }
         }
       }

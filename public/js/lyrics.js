@@ -15,6 +15,8 @@
  * Lyrics → Note conversion
  */
 
+import { PERCEPTUAL_CENTER_MS } from './utils.js';
+
 // ============================================================
 // 상수 설정 (Tuning Constants)
 // ============================================================
@@ -222,8 +224,10 @@ export class LyricsManager {
           consecutiveCount = 0;
         }
         
+        // Apply perceptual center correction (LYRIC SYNC ENHANCEMENT)
+        // Advances note timing by -35ms to align with perceived vocal attack
         notes.push({
-          timeMs: Math.round(noteTime),
+          timeMs: Math.round(noteTime + PERCEPTUAL_CENTER_MS),
           lane: lane
         });
         
