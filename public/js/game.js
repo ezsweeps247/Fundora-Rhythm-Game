@@ -77,21 +77,6 @@ export class Game {
     
     // Lane flash state (for visual feedback)
     this.laneFlash = [0, 0, 0, 0]; // 0-1, fades to 0
-    
-    // Adaptive player bias tracking (LYRIC SYNC ENHANCEMENT)
-    // Automatically compensates for player's early/late tendency
-    this.playerBiasMs = 0;       // Positive = player hits late, negative = hits early
-    this.biasHitCount = 0;       // Number of hits used for calibration
-    this.adaptiveBiasEnabled = ADAPTIVE_BIAS_CONFIG.enabled;
-  }
-
-  /**
-   * Set adaptive bias enabled/disabled
-   * @param {boolean} enabled - Whether adaptive bias should be enabled
-   */
-  setAdaptiveBiasEnabled(enabled) {
-    this.adaptiveBiasEnabled = enabled;
-    console.log(`Adaptive bias ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -166,10 +151,6 @@ export class Game {
       miss: 0,
     };
     
-    // Reset adaptive bias calibration (LYRIC SYNC)
-    this.playerBiasMs = 0;
-    this.biasHitCount = 0;
-    
     // Reset note judged flags
     if (this.currentChart) {
       this.currentChart.notes.forEach(note => {
@@ -219,9 +200,8 @@ export class Game {
   /**
    * Judge a note when a lane key is pressed
    * 
-   * ENHANCED PRECISION TIMING (LYRIC SYNC):
+   * PRECISE TIMING (BEAT SYNC):
    * - Uses event.timeStamp for frame-independent judgment (no render jitter)
-   * - Applies adaptive player bias to neutralize early/late tendencies
    * - Time delta ONLY - screen position is purely visual
    * 
    * @param {number} lane - Lane index (0-3)
@@ -259,32 +239,11 @@ export class Game {
       }
     }
     
-    // Calculate time delta with adaptive bias compensation
-    // Positive delta = late, negative = early
-    let rawDelta = eventSongMs - closestNote.timeMs;
-    const delta = rawDelta + this.playerBiasMs;
+    // Calculate time delta (positive = late, negative = early)
+    const delta = eventSongMs - closestNote.timeMs;
     
-    // Calculate judgment based on compensated time delta
+    // Calculate judgment based on time delta
     const judgment = calculateJudgment(delta);
-    
-    // Update adaptive bias (during calibration phase)
-    if (this.adaptiveBiasEnabled && this.biasHitCount < ADAPTIVE_BIAS_CONFIG.calibrationHits) {
-      // Gradually adjust bias toward player's average error
-      // Use rawDelta (before bias compensation) for learning
-      this.playerBiasMs = lerp(
-        this.playerBiasMs,
-        -rawDelta,  // Negative of delta to compensate
-        ADAPTIVE_BIAS_CONFIG.learningRate
-      );
-      
-      // Clamp to maximum bias
-      this.playerBiasMs = Math.max(
-        -ADAPTIVE_BIAS_CONFIG.maxBiasMs,
-        Math.min(ADAPTIVE_BIAS_CONFIG.maxBiasMs, this.playerBiasMs)
-      );
-      
-      this.biasHitCount++;
-    }
     
     // Mark note as judged
     closestNote.judged = true;
@@ -540,7 +499,7 @@ export class Game {
   }
 
   /**
-   * Render debug HUD showing precise timing information (ENHANCED LYRIC SYNC)
+   * Render debug HUD showing precise timing information (BEAT SYNC)
    * @param {CanvasRenderingContext2D} ctx - Canvas context
    * @param {number} now - Current song time in ms
    */
@@ -548,12 +507,8 @@ export class Game {
     // Find next unjudged note
     const nextNote = this.currentChart.notes.find(note => !note.judged);
     
-    // Get drift statistics from audio manager
-    const driftStats = this.audio.getDriftStats();
-    
-    // Get timing source
-    const useTimestamp = this.audio.audioContext.getOutputTimestamp !== undefined;
-    const timingSource = useTimestamp ? 'getOutputTimestamp' : 'fallback';
+    // Get beat grid info
+    const beatInfo = this.currentChart.beatGridInfo;
     
     // Setup text rendering
     ctx.font = '12px monospace';
@@ -563,9 +518,9 @@ export class Game {
     let y = 10;
     const lineHeight = 16;
     
-    // Background panel (expanded for new metrics)
+    // Background panel
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(5, 5, 280, 93);
+    ctx.fillRect(5, 5, 300, 108);
     
     // Next note delta
     if (nextNote) {
@@ -579,35 +534,43 @@ export class Game {
     }
     y += lineHeight;
     
-    // Adaptive bias (LYRIC SYNC ENHANCEMENT)
-    const biasStatus = this.biasHitCount < ADAPTIVE_BIAS_CONFIG.calibrationHits
-      ? `${this.biasHitCount}/${ADAPTIVE_BIAS_CONFIG.calibrationHits} cal`
-      : 'locked';
-    ctx.fillStyle = this.adaptiveBiasEnabled ? '#00ff88' : '#888888';
-    ctx.fillText(
-      `Bias: ${this.playerBiasMs > 0 ? '+' : ''}${this.playerBiasMs.toFixed(1)}ms (${biasStatus})`,
-      10,
-      y
-    );
-    y += lineHeight;
+    // Beat grid info
+    if (beatInfo) {
+      ctx.fillStyle = '#00ff88';
+      ctx.fillText(`BPM: ${beatInfo.bpm.toFixed(1)}`, 10, y);
+      y += lineHeight;
+      
+      ctx.fillStyle = '#00d4ff';
+      ctx.fillText(`Phase: ${beatInfo.phaseMs.toFixed(0)}ms`, 10, y);
+      y += lineHeight;
+      
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillText(`Conf: ${beatInfo.confidence.toFixed(2)}`, 10, y);
+      y += lineHeight;
+    } else {
+      ctx.fillStyle = '#888888';
+      ctx.fillText('BPM: --', 10, y);
+      y += lineHeight * 3;
+    }
     
-    // Drift statistics
-    ctx.fillStyle = '#00d4ff';
-    ctx.fillText(`Drift avg: ${driftStats.avg.toFixed(2)}ms`, 10, y);
-    y += lineHeight;
-    
+    // Grid mode
+    const subdiv = this.currentChart.subdivision || 0;
+    const subdivText = subdiv === 0 ? 'beats' : `1/${subdiv}`;
+    const quantMode = this.currentChart.quantizeMode || 'hard';
     ctx.fillStyle = '#ff00ff';
-    ctx.fillText(`Drift max: ${driftStats.max.toFixed(2)}ms`, 10, y);
+    ctx.fillText(`Grid: ${subdivText} (${quantMode})`, 10, y);
+    y += lineHeight;
+    
+    // Audio offset
+    ctx.fillStyle = '#888888';
+    ctx.fillText(`Offset: ${this.audio.audioOffsetMs.toFixed(0)}ms`, 10, y);
     y += lineHeight;
     
     // Timing source
-    ctx.fillStyle = '#ffcc00';
+    const useTimestamp = this.audio.audioContext.getOutputTimestamp !== undefined;
+    const timingSource = useTimestamp ? 'getOutputTimestamp' : 'fallback';
+    ctx.fillStyle = '#00d4ff';
     ctx.fillText(`Source: ${timingSource}`, 10, y);
-    y += lineHeight;
-    
-    // Perceptual center indicator
-    ctx.fillStyle = '#ff00ff';
-    ctx.fillText(`Perceptual: ${PERCEPTUAL_CENTER_MS}ms`, 10, y);
   }
 
   /**

@@ -69,23 +69,19 @@ document.getElementById('start-btn').addEventListener('click', async () => {
       console.warn('Could not load audio for analysis:', error.message);
     }
     
-    // Load chart with lyrics support
-    const chart = await chartManager.loadChartWithLyrics(
+    // Load chart with beat tracking
+    const chart = await chartManager.loadChartWithBeatTracking(
       selectedSong,
       audioPath,
       audioBuffer,
       {
-        useLyrics: settings.useLyrics,
-        quantizeMode: settings.quantizeMode,
-        langHint: settings.langHint,
-        perceptualCenter: settings.perceptualCenter
+        subdivision: settings.subdivision || 4,
+        quantizeMode: settings.quantizeMode || 'hard',
+        beatLock: settings.beatLock || 'soft'
       }
     );
     
     game.setChart(chart);
-    
-    // Apply adaptive bias setting
-    game.setAdaptiveBiasEnabled(settings.adaptiveBias);
     
     // Start the game
     await game.startGame();
@@ -114,16 +110,17 @@ uiManager.setupSettingsListeners({
   onOffsetChange: (offset) => {
     audioManager.setAudioOffset(offset);
   },
-  onPerceptualChange: (perceptualCenter) => {
-    // Perceptual center only applies to new charts
-    console.log(`Perceptual center updated: ${perceptualCenter}ms (restart game to apply)`);
+  onSubdivisionChange: (subdivision) => {
+    // Subdivision only applies to new charts
+    console.log(`Subdivision updated: ${subdivision} (restart game to apply)`);
   },
-  onAdaptiveBiasChange: (enabled) => {
-    // Update game's adaptive bias setting
-    if (game) {
-      game.setAdaptiveBiasEnabled(enabled);
-      console.log(`Adaptive bias ${enabled ? 'enabled' : 'disabled'}`);
-    }
+  onQuantizeModeChange: (mode) => {
+    // Quantize mode only applies to new charts
+    console.log(`Quantize mode updated: ${mode} (restart game to apply)`);
+  },
+  onBeatLockChange: (mode) => {
+    // Beat lock only applies to new charts
+    console.log(`Beat lock updated: ${mode} (restart game to apply)`);
   },
 });
 
@@ -282,17 +279,17 @@ keyButtons.forEach(button => {
 });
 
 console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
-console.log('%cSYNC FEEL FIXED ✅ • keys align to LYRICS', 'color: #00ff88; font-weight: bold; font-size: 18px');
-console.log('%c(perceptual + event timing + adaptive bias)', 'color: #ff00ff; font-weight: bold; font-size: 14px');
-console.log('%cPRECISE TIMING ENGINE', 'color: #00d4ff; font-weight: bold; font-size: 14px');
-console.log('%c  • Event timestamp judgment: songTimeAtEventMs(event.timeStamp)', 'color: #00d4ff');
-console.log('%c  • Perceptual center: -35ms vocal attack correction', 'color: #00d4ff');
-console.log('%c  • Adaptive bias: auto-corrects early/late tendency', 'color: #00d4ff');
-console.log('%c  • Absolute time positioning: t-ratio (spawn → hitline)', 'color: #00d4ff');
-console.log('%c  • Drift compensation: 5s resampling with ±2ms threshold', 'color: #00d4ff');
+console.log('%cBEAT SYNC ENGINE ✅ • notes locked to tempo grid', 'color: #00ff88; font-weight: bold; font-size: 18px');
+console.log('%c(tempo detection + phase alignment + quantization)', 'color: #ff00ff; font-weight: bold; font-size: 14px');
+console.log('%cPRECISE TIMING SYSTEM', 'color: #00d4ff; font-weight: bold; font-size: 14px');
+console.log('%c  • Beat analysis: auto-detect BPM + phase from audio', 'color: #00d4ff');
+console.log('%c  • Grid quantization: notes align to beat subdivisions', 'color: #00d4ff');
+console.log('%c  • Event timestamp judgment: frame-independent timing', 'color: #00d4ff');
+console.log('%c  • Absolute positioning: time-based (no velocity drift)', 'color: #00d4ff');
+console.log('%c  • Audio offset: calibrate for system latency', 'color: #00d4ff');
 console.log('%cKeys: D F J K • P Pause • R Restart', 'color: #ffcc00; font-weight: bold');
 console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
-console.log('🎯 Lyric sync: Notes align to vocal syllables (±10-20ms feel)');
-console.log('🎮 Adaptive: First 24 hits calibrate to your timing style');
-console.log('📊 Debug HUD: Δnext, playerBias, drift stats, perceptual offset');
-console.log('🎵 Ready to play with PERFECT lyric-aligned rhythm!');
+console.log('🎵 Beat tracking: Automatic tempo & phase detection');
+console.log('⚙️ Configurable: Subdivision (2/3/4), quantize mode, beat lock');
+console.log('📊 Debug HUD: BPM, phase, confidence, grid mode');
+console.log('🎮 Ready to play with PERFECT beat-aligned rhythm!');

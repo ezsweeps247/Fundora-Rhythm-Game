@@ -145,24 +145,24 @@ function estimateTempo(flux, sampleRate) {
   
   // Find peak in autocorrelation
   let maxCorr = 0;
-  let maxLag = minLag;
+  let peakLag = minLag;
   
   for (let lag = minLag; lag <= maxLag; lag++) {
     const corr = autocorr[lag - minLag];
     if (corr > maxCorr) {
       maxCorr = corr;
-      maxLag = lag;
+      peakLag = lag;
     }
   }
   
   // Convert lag to BPM
-  const bpm = 60000 / (maxLag * hopMs);
+  const bpm = 60000 / (peakLag * hopMs);
   
   // Check octave errors (half/double tempo)
   const candidates = [
     { bpm: bpm, score: maxCorr },
-    { bpm: bpm * 2, score: autocorr[Math.floor(maxLag / 2) - minLag] || 0 },
-    { bpm: bpm / 2, score: autocorr[Math.min(maxLag * 2 - minLag, autocorr.length - 1)] || 0 }
+    { bpm: bpm * 2, score: autocorr[Math.floor(peakLag / 2) - minLag] || 0 },
+    { bpm: bpm / 2, score: autocorr[Math.min(peakLag * 2 - minLag, autocorr.length - 1)] || 0 }
   ].filter(c => c.bpm >= minBPM && c.bpm <= maxBPM);
   
   // Pick best candidate

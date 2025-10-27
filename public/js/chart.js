@@ -8,18 +8,17 @@
  * 
  * This module handles:
  * - Loading chart JSON files
- * - Lyrics-based chart generation (LRC → notes)
- * - Vocal onset detection fallback
+ * - Beat grid-based chart generation (tempo/phase detection → quantized notes)
  * - Validating chart data
  * - Sorting notes by time
  */
 
-import { LyricsManager } from './lyrics.js';
+import { analyzeBeatGrid, makeBeatGrid, laneForGridIndex, quantizeToGrid } from './beattrack.js';
 
 export class ChartManager {
   constructor() {
     this.currentChart = null;
-    this.lyricsManager = new LyricsManager();
+    this.beatGridInfo = null; // Stores {bpm, phaseMs, confidence}
   }
 
   /**
@@ -71,21 +70,20 @@ export class ChartManager {
   }
 
   /**
-   * Load chart with lyrics support
-   * Priority: Cached JSON → LRC → Vocal onset detection
+   * Load chart with beat tracking
+   * Priority: Cached JSON → Beat grid analysis
    * 
    * @param {string} songId - Song ID (e.g., 'sample1')
    * @param {string} audioPath - Path to audio file
-   * @param {AudioBuffer} audioBuffer - Audio buffer for vocal onset detection
-   * @param {Object} settings - Settings {useLyrics, quantizeMode, langHint}
+   * @param {AudioBuffer} audioBuffer - Audio buffer for beat analysis
+   * @param {Object} settings - Settings {subdivision, quantizeMode, beatLock}
    * @returns {Promise<object>} Generated chart
    */
-  async loadChartWithLyrics(songId, audioPath, audioBuffer, settings = {}) {
+  async loadChartWithBeatTracking(songId, audioPath, audioBuffer, settings = {}) {
     const {
-      useLyrics = true,
-      quantizeMode = 'off',
-      langHint = 'auto',
-      perceptualCenter = -35
+      subdivision = 4,      // 0=beats only, 2/3/4=subdivisions
+      quantizeMode = 'hard', // 'hard' or 'soft'
+      beatLock = 'soft'     // 'off', 'soft', 'hard'
     } = settings;
     
     // Try to load cached chart first
@@ -105,53 +103,43 @@ export class ChartManager {
     let notes = [];
     let title = songId;
     let bpm = 120;
+    let phaseMs = 0;
+    let confidence = 0;
     
-    // Try LRC if lyrics enabled
-    if (useLyrics) {
+    // Analyze beat grid from audio
+    if (audioBuffer) {
       try {
-        const lrcResponse = await fetch(`/lyrics/${songId}.lrc`);
-        if (lrcResponse.ok) {
-          const lrcText = await lrcResponse.text();
-          const entries = this.lyricsManager.parseLRC(lrcText);
-          
-          if (entries.length > 0) {
-            notes = await this.lyricsManager.generateNotesFromLRC(
-              entries,
-              bpm,
-              quantizeMode,
-              langHint,
-              perceptualCenter,
-              audioBuffer
-            );
-            console.log(`✓ Timing source: LRC (${entries.length} lines → ${notes.length} notes)`);
-          }
-        }
-      } catch (error) {
-        console.warn('LRC file not found or malformed, trying vocal onset detection');
-      }
-    }
-    
-    // Fallback to vocal onset detection
-    if (notes.length === 0 && audioBuffer) {
-      try {
-        const onsets = await this.lyricsManager.detectVocalOnsets(audioBuffer, {
-          bpm,
-          quantizeMode
-        });
+        const gridInfo = await analyzeBeatGrid(audioBuffer);
+        bpm = gridInfo.bpm;
+        phaseMs = gridInfo.phaseMs;
+        confidence = gridInfo.confidence;
+        this.beatGridInfo = gridInfo;
         
-        if (onsets.length > 0) {
-          notes = this.lyricsManager.convertOnsetsToNotes(onsets);
-          console.log(`✓ Timing source: VocalOnset (${onsets.length} onsets → ${notes.length} notes)`);
-        }
+        console.log(`BeatSync ON • BPM=${bpm.toFixed(1)} phase=${phaseMs.toFixed(0)}ms (conf=${confidence.toFixed(2)})`);
+        
+        // Generate beat grid
+        const lengthMs = audioBuffer.duration * 1000;
+        const grid = makeBeatGrid({ bpm, phaseMs, lengthMs, subdiv: subdivision });
+        
+        // Convert grid to notes with lane assignment
+        notes = grid.map((gridPoint, index) => ({
+          timeMs: gridPoint.tms,
+          lane: laneForGridIndex(index, gridPoint.type, 4),
+          judged: false
+        }));
+        
+        console.log(`✓ Generated ${notes.length} notes from beat grid (subdiv=${subdivision})`);
+        
       } catch (error) {
-        console.error('Vocal onset detection failed:', error);
+        console.error('Beat grid analysis failed:', error);
+        // Fallback to simple chart
+        const duration = audioBuffer.duration;
+        const generated = this.generateAutoChart(bpm, duration, 8);
+        notes = generated.notes;
       }
-    }
-    
-    // If still no notes, generate basic chart
-    if (notes.length === 0) {
-      console.warn('No lyrics or vocal onsets detected, generating basic chart');
-      const duration = audioBuffer ? audioBuffer.duration : 10;
+    } else {
+      // No audio buffer, generate simple chart
+      const duration = 10;
       const generated = this.generateAutoChart(bpm, duration, 8);
       notes = generated.notes;
     }
@@ -162,9 +150,13 @@ export class ChartManager {
       audio: audioPath,
       offsetMs: 0,
       bpm: bpm,
+      phaseMs: phaseMs,
       lanes: 4,
       notes: notes,
-      timingSource: this.lyricsManager.getTimingSource()
+      beatGridInfo: this.beatGridInfo,
+      subdivision: subdivision,
+      quantizeMode: quantizeMode,
+      beatLock: beatLock
     };
     
     this.validateChart(chart);
@@ -282,7 +274,10 @@ export class ChartManager {
    * @returns {string} Timing source name
    */
   getTimingSourceDisplay() {
-    return this.lyricsManager.getTimingSourceDisplay();
+    if (this.beatGridInfo) {
+      return `BeatGrid (BPM=${this.beatGridInfo.bpm.toFixed(1)} phase=${this.beatGridInfo.phaseMs.toFixed(0)}ms conf=${this.beatGridInfo.confidence.toFixed(2)})`;
+    }
+    return 'Manual Chart';
   }
 
   /**
