@@ -5,16 +5,55 @@
  * Uses multi-band onset detection to create rhythm patterns that follow the music.
  */
 
+// ============================================================
+// BLACKPINK REFERENCE PROFILE
+// ============================================================
+
+/**
+ * LocalStorage key for BLACKPINK reference profile
+ * Stores the "perfect" beat analysis from BLACKPINK-JUMP to apply to other songs
+ * 
+ * Profile shape:
+ * {
+ *   bpm: number,
+ *   subdiv: 4,
+ *   quantize: 'hard',
+ *   preFilters: {hp: 30, lp: 2600},
+ *   fluxHopMs: 10,
+ *   phaseKernelMs: 1400,
+ *   phaseSnapMs: 18,
+ *   onsetMinGapMs: 95,
+ *   audioOffsetLearnedMs: number
+ * }
+ */
+export const REF_PROFILE_KEY = 'REF_BEAT_PROFILE_BLACKPINK';
+
 /**
  * Analyze audio buffer to detect musical onsets and rhythm
+ * NEW: Adopts BLACKPINK reference profile when available
  * 
  * @param {AudioBuffer} audioBuffer - Audio to analyze
- * @param {number} maxAnalysisSeconds - Max seconds to analyze (default 90)
- * @returns {Promise<{bpm: number, phaseMs: number, confidence: number, onsets: Array<{timeMs: number, strength: number, band: string}>}>}
+ * @param {Object} options - Analysis options {ref: profile|null}
+ * @returns {Promise<{bpm: number, phaseMs: number, confidence: number, onsets: Array, adoptedFromRef: boolean}>}
  */
-export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
-  console.log('🎵 Analyzing musical events...');
+export async function analyzeBeatGrid(audioBuffer, options = {}) {
+  // Load reference profile from localStorage
+  const ref = options.ref !== undefined ? options.ref : 
+    JSON.parse(localStorage.getItem(REF_PROFILE_KEY) || 'null');
   
+  if (ref) {
+    console.log('[BeatProfile] REF loaded ✅ subdiv=4, quantize=hard');
+    return await analyzeBeatGridWithRef(audioBuffer, ref);
+  } else {
+    console.log('🎵 Analyzing musical events (no ref profile)...');
+    return await analyzeBeatGridStandard(audioBuffer);
+  }
+}
+
+/**
+ * Standard beat analysis (when no reference profile exists)
+ */
+async function analyzeBeatGridStandard(audioBuffer) {
   const duration = audioBuffer.duration;
   
   // Detect onsets in different frequency bands
@@ -24,15 +63,14 @@ export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
   
   console.log(`Raw detections: bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length}`);
   
-  // Combine bass and mid for moderate difficulty (like APT song)
+  // Combine bass and mid for moderate difficulty
   const allOnsets = [...bassOnsets, ...midOnsets]
     .sort((a, b) => a.timeMs - b.timeMs);
   
-  console.log(`✓ Detected ${allOnsets.length} musical events (bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length})`);
+  console.log(`✓ Detected ${allOnsets.length} musical events`);
   
   // Estimate tempo from onset intervals
   const bpm = estimateBPMFromOnsets(allOnsets);
-  const beatMs = 60000 / bpm;
   
   // Find first strong onset as phase
   const phaseMs = allOnsets.length > 0 ? allOnsets[0].timeMs : 0;
@@ -42,10 +80,102 @@ export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
     phaseMs: phaseMs,
     confidence: 0.8,
     onsets: allOnsets,
+    adoptedFromRef: false,
     drift: { ppm: 0 }
   };
   
-  console.log(`✓ Analysis complete: BPM=${bpm.toFixed(1)} phase=${phaseMs.toFixed(0)}ms, ${allOnsets.length} events`);
+  console.log(`[BeatTrack] bpm=${bpm.toFixed(1)}, phase=${phaseMs.toFixed(0)}ms (conf=${result.confidence.toFixed(2)}, adoptedFromRef=false)`);
+  
+  return result;
+}
+
+/**
+ * Reference profile-based analysis (BLACKPINK method)
+ * Uses ref's filter params and searches for BPM/phase that matches ref's subdiv=4 grid
+ */
+async function analyzeBeatGridWithRef(audioBuffer, ref) {
+  const hp = ref.preFilters?.hp || 30;
+  const lp = ref.preFilters?.lp || 2600;
+  const fluxHopMs = ref.fluxHopMs || 10;
+  const phaseKernelMs = ref.phaseKernelMs || 1400;
+  
+  // Detect onsets using ref's filters
+  const bassOnsets = await detectOnsetsInBand(audioBuffer, hp, 250, 'bass');
+  const midOnsets = await detectOnsetsInBand(audioBuffer, 250, lp, 'mid');
+  
+  const allOnsets = [...bassOnsets, ...midOnsets]
+    .sort((a, b) => a.timeMs - b.timeMs);
+  
+  console.log(`✓ Detected ${allOnsets.length} onsets (ref filters)`);
+  
+  // Estimate base BPM
+  let baseBPM = estimateBPMFromOnsets(allOnsets);
+  
+  // Test octave variations (×0.5, ×1, ×2) for subdiv=4 grid fit
+  const candidates = [
+    { bpm: baseBPM * 0.5, octave: 0.5 },
+    { bpm: baseBPM, octave: 1.0 },
+    { bpm: baseBPM * 2.0, octave: 2.0 }
+  ].filter(c => c.bpm >= 70 && c.bpm <= 180);
+  
+  let bestBPM = baseBPM;
+  let bestScore = 0;
+  
+  // Evaluate each BPM candidate for subdiv=4 grid alignment
+  for (const cand of candidates) {
+    const beatMs = 60000 / cand.bpm;
+    const gridStep = beatMs / 4; // subdiv=4
+    
+    // Score = how many onsets land on grid points
+    let score = 0;
+    for (const onset of allOnsets.slice(0, 200)) {
+      const nearestGridTime = Math.round(onset.timeMs / gridStep) * gridStep;
+      const dist = Math.abs(onset.timeMs - nearestGridTime);
+      if (dist < gridStep * 0.3) score += onset.strength || 1;
+    }
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestBPM = cand.bpm;
+    }
+  }
+  
+  const beatMs = 60000 / bestBPM;
+  
+  // Phase search within ±phaseKernelMs
+  const searchMax = Math.min(phaseKernelMs, beatMs * 2);
+  let bestPhaseMs = 0;
+  let bestPhaseScore = 0;
+  
+  const phaseStep = 10; // 10ms resolution
+  for (let testPhase = 0; testPhase < searchMax; testPhase += phaseStep) {
+    let score = 0;
+    const gridStep = beatMs / 4;
+    
+    for (const onset of allOnsets.slice(0, 200)) {
+      const gridPos = (onset.timeMs - testPhase + gridStep) % gridStep;
+      const dist = Math.min(gridPos, gridStep - gridPos);
+      if (dist < gridStep * 0.25) score += onset.strength || 1;
+    }
+    
+    if (score > bestPhaseScore) {
+      bestPhaseScore = score;
+      bestPhaseMs = testPhase;
+    }
+  }
+  
+  const confidence = Math.min(0.95, bestPhaseScore / (allOnsets.length * 0.5));
+  
+  const result = {
+    bpm: bestBPM,
+    phaseMs: bestPhaseMs,
+    confidence: confidence,
+    onsets: allOnsets,
+    adoptedFromRef: true,
+    drift: { ppm: 0 }
+  };
+  
+  console.log(`[BeatTrack] bpm=${bestBPM.toFixed(1)}, phase=${bestPhaseMs.toFixed(0)}ms (conf=${confidence.toFixed(2)}, adoptedFromRef=true)`);
   
   return result;
 }
