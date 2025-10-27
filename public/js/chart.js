@@ -102,21 +102,12 @@ export class ChartManager {
             
             // If chart has no notes, generate them from detected musical events
             if (chart.notes.length === 0 && gridInfo.onsets && gridInfo.onsets.length > 0) {
-              const laneMap = {
-                'bass': 0,
-                'mid': 1,
-                'high': 3
-              };
+              const lanePattern = [0, 1, 2, 3, 1, 3, 0, 2];
               
               chart.notes = gridInfo.onsets.map((onset, index) => {
-                let lane = laneMap[onset.band];
-                if (onset.band === 'mid') {
-                  lane = (index % 2) + 1;
-                }
-                
                 return {
                   timeMs: onset.timeMs,
-                  lane: lane,
+                  lane: lanePattern[index % lanePattern.length],
                   judged: false
                 };
               });
@@ -160,23 +151,13 @@ export class ChartManager {
         
         // Generate notes from detected musical onsets
         if (gridInfo.onsets && gridInfo.onsets.length > 0) {
-          // Map each onset to a note based on frequency band
-          const laneMap = {
-            'bass': 0,   // Low notes -> lane 0
-            'mid': 1,    // Mid notes -> lanes 1-2
-            'high': 3    // High notes -> lane 3
-          };
+          // Distribute bass notes evenly across all 4 lanes for variety
+          const lanePattern = [0, 1, 2, 3, 1, 3, 0, 2]; // Varied pattern
           
           notes = gridInfo.onsets.map((onset, index) => {
-            // Assign lane based on frequency band and add variation
-            let lane = laneMap[onset.band];
-            if (onset.band === 'mid') {
-              lane = (index % 2) + 1; // Alternate between lanes 1 and 2
-            }
-            
             return {
               timeMs: onset.timeMs,
-              lane: lane,
+              lane: lanePattern[index % lanePattern.length],
               judged: false
             };
           });

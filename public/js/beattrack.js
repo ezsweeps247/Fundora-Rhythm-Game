@@ -22,8 +22,10 @@ export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
   const midOnsets = await detectOnsetsInBand(audioBuffer, 250, 2000, 'mid');
   const highOnsets = await detectOnsetsInBand(audioBuffer, 2000, 8000, 'high');
   
-  // Combine all onsets
-  const allOnsets = [...bassOnsets, ...midOnsets, ...highOnsets]
+  console.log(`Raw detections: bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length}`);
+  
+  // Only use bass onsets for easier gameplay - just follow the beat!
+  const allOnsets = [...bassOnsets]
     .sort((a, b) => a.timeMs - b.timeMs);
   
   console.log(`✓ Detected ${allOnsets.length} musical events (bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length})`);
@@ -125,13 +127,13 @@ function findOnsetPeaks(flux, bandName) {
   
   // Much stricter threshold - only pick strong beats
   const windowSize = 50; // 500ms window for better context
-  const minTimeBetweenMs = 150; // Minimum 150ms between notes (max ~6.7 notes/sec)
+  const minTimeBetweenMs = 250; // Minimum 250ms between notes (max ~4 notes/sec)
   
   // Threshold multipliers per band (higher = fewer notes)
   const thresholdMultiplier = {
-    'bass': 4.0,  // Very selective on bass
-    'mid': 5.0,   // Even more selective on mid
-    'high': 6.0   // Most selective on high (avoid noise)
+    'bass': 8.0,  // Very selective - only strongest beats
+    'mid': 10.0,  // Even more selective on mid
+    'high': 12.0  // Most selective on high (avoid noise)
   };
   
   const multiplier = thresholdMultiplier[bandName] || 4.0;
