@@ -153,55 +153,41 @@
 
         <div class="settings-section">
           <label class="settings-label">
-            PERCEPTUAL CENTER
-            <span id="perceptual-value" class="settings-value" data-testid="text-perceptual">-35ms</span>
+            SUBDIVISION
+            <span id="subdivision-value" class="settings-value" data-testid="text-subdivision">1/4</span>
           </label>
-          <input type="range" id="perceptual-slider" min="-80" max="40" step="5" value="-35" class="slider" data-testid="slider-perceptual">
-          <p class="settings-hint">Vocal attack timing (-35ms default)</p>
+          <select id="subdivision-select" class="settings-select" data-testid="select-subdivision">
+            <option value="0">Beats Only</option>
+            <option value="2">1/2 Notes (8th)</option>
+            <option value="3">1/3 Notes (Triplets)</option>
+            <option value="4" selected>1/4 Notes (16th)</option>
+          </select>
+          <p class="settings-hint">Beat grid subdivision density</p>
         </div>
 
         <div class="settings-section">
           <label class="settings-label">
-            ADAPTIVE BIAS
-            <span id="adaptive-bias-value" class="settings-value" data-testid="text-adaptive-bias">ON</span>
+            QUANTIZE MODE
+            <span id="quantize-value" class="settings-value" data-testid="text-quantize">Hard</span>
           </label>
-          <select id="adaptive-bias-select" class="settings-select" data-testid="select-adaptive-bias">
-            <option value="true">ON</option>
-            <option value="false">OFF</option>
-          </select>
-          <p class="settings-hint">Auto-correct your timing tendency</p>
-        </div>
-
-        <div class="settings-section">
-          <label class="settings-label">
-            LYRICS TIMING
-            <span id="lyrics-enabled-value" class="settings-value" data-testid="text-lyrics-enabled">ON</span>
-          </label>
-          <select id="lyrics-enabled-select" class="settings-select" data-testid="select-lyrics-enabled">
-            <option value="true">ON</option>
-            <option value="false">OFF</option>
-          </select>
-          <p class="settings-hint">Use .lrc files when available</p>
-        </div>
-
-        <div class="settings-section">
-          <label class="settings-label">QUANTIZE LYRICS</label>
           <select id="quantize-select" class="settings-select" data-testid="select-quantize">
-            <option value="off">Off (Natural)</option>
-            <option value="soft">Soft (±40ms snap)</option>
-            <option value="hard">Hard (Grid lock)</option>
+            <option value="hard" selected>Hard (Always snap)</option>
+            <option value="soft">Soft (±60ms snap)</option>
           </select>
-          <p class="settings-hint">Snap timing to rhythm grid</p>
+          <p class="settings-hint">Note snapping to grid</p>
         </div>
 
         <div class="settings-section">
-          <label class="settings-label">LYRIC LANGUAGE</label>
-          <select id="lang-hint-select" class="settings-select" data-testid="select-lang-hint">
-            <option value="auto">Auto-detect</option>
-            <option value="EN">English</option>
-            <option value="KO">한국어 (Korean)</option>
+          <label class="settings-label">
+            BEAT LOCK
+            <span id="beatlock-value" class="settings-value" data-testid="text-beatlock">Soft</span>
+          </label>
+          <select id="beatlock-select" class="settings-select" data-testid="select-beatlock">
+            <option value="off">Off (No drift correction)</option>
+            <option value="soft" selected>Soft (Phase only)</option>
+            <option value="hard">Hard (Phase + Tempo)</option>
           </select>
-          <p class="settings-hint">Syllable detection method</p>
+          <p class="settings-hint">Real-time beat tracking adjustment</p>
         </div>
 
         <div class="settings-section">

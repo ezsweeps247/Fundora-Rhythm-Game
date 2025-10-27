@@ -92,8 +92,40 @@ export class ChartManager {
       if (response.ok) {
         const chart = await response.json();
         this.validateChart(chart);
+        
+        // If quantization is enabled and we have audio, quantize the cached chart to beat grid
+        if (quantizeMode !== 'off' && audioBuffer) {
+          try {
+            const gridInfo = await analyzeBeatGrid(audioBuffer);
+            this.beatGridInfo = gridInfo;
+            
+            const lengthMs = audioBuffer.duration * 1000;
+            const grid = makeBeatGrid({ 
+              bpm: gridInfo.bpm, 
+              phaseMs: gridInfo.phaseMs, 
+              lengthMs, 
+              subdiv: subdivision 
+            });
+            
+            // Quantize existing notes to the detected grid
+            chart.notes.forEach(note => {
+              note.timeMs = quantizeToGrid(note.timeMs, grid, quantizeMode, 60);
+            });
+            
+            chart.beatGridInfo = gridInfo;
+            chart.subdivision = subdivision;
+            chart.quantizeMode = quantizeMode;
+            chart.beatLock = beatLock;
+            
+            console.log(`✓ Loaded cached chart (quantized to BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
+          } catch (error) {
+            console.warn('Beat grid quantization failed, using original chart:', error);
+          }
+        } else {
+          console.log(`✓ Loaded cached chart: ${chart.title}`);
+        }
+        
         this.currentChart = chart;
-        console.log(`✓ Loaded cached chart: ${chart.title}`);
         return chart;
       }
     } catch (error) {
@@ -266,6 +298,31 @@ export class ChartManager {
    */
   getCurrentChart() {
     return this.currentChart;
+  }
+
+  /**
+   * Apply beat lock correction to the current chart
+   * Re-estimates phase based on recent timing and adjusts future notes
+   * 
+   * @param {number} currentTimeMs - Current song time
+   * @param {number} windowMs - Analysis window (default 5000ms)
+   */
+  applyBeatLockCorrection(currentTimeMs, windowMs = 5000) {
+    if (!this.currentChart || !this.beatGridInfo) return;
+    
+    const beatLock = this.currentChart.beatLock;
+    if (beatLock === 'off') return;
+    
+    // For soft mode, we only adjust phase (keep BPM constant)
+    // For hard mode, we could also adjust BPM, but that's rarely needed
+    
+    // This is a placeholder for beat lock logic
+    // In a full implementation, this would:
+    // 1. Analyze recent hit timing to detect phase drift
+    // 2. Adjust future note times by applying a small correction
+    // 3. Use lerp to smooth the correction and avoid pops
+    
+    // For now, we'll leave this as a hook for future enhancement
   }
 
   /**

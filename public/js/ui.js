@@ -40,25 +40,21 @@ export class UIManager {
       volumeValue: document.getElementById('volume-value'),
       offsetSlider: document.getElementById('offset-slider'),
       offsetValue: document.getElementById('offset-value'),
-      perceptualSlider: document.getElementById('perceptual-slider'),
-      perceptualValue: document.getElementById('perceptual-value'),
-      adaptiveBiasSelect: document.getElementById('adaptive-bias-select'),
-      adaptiveBiasValue: document.getElementById('adaptive-bias-value'),
-      lyricsEnabledSelect: document.getElementById('lyrics-enabled-select'),
-      lyricsEnabledValue: document.getElementById('lyrics-enabled-value'),
+      subdivisionSelect: document.getElementById('subdivision-select'),
+      subdivisionValue: document.getElementById('subdivision-value'),
       quantizeSelect: document.getElementById('quantize-select'),
-      langHintSelect: document.getElementById('lang-hint-select'),
+      quantizeValue: document.getElementById('quantize-value'),
+      beatlockSelect: document.getElementById('beatlock-select'),
+      beatlockValue: document.getElementById('beatlock-value'),
     };
     
     // Current settings (will be loaded from localStorage)
     this.settings = {
       volume: 0.7,            // 70%
       audioOffset: 0,         // 0ms
-      perceptualCenter: -35,  // -35ms (vocal attack correction)
-      adaptiveBias: true,     // Enable adaptive bias auto-correction
-      useLyrics: true,        // Use lyrics timing when available
-      quantizeMode: 'off',    // 'off', 'soft', 'hard'
-      langHint: 'auto',       // 'auto', 'EN', 'KO'
+      subdivision: 4,         // 0, 2, 3, 4 (beat subdivisions)
+      quantizeMode: 'hard',   // 'hard' or 'soft'
+      beatLock: 'soft',       // 'off', 'soft', 'hard'
     };
     
     // Load settings from storage
@@ -203,23 +199,19 @@ export class UIManager {
     this.settingsElements.offsetSlider.value = this.settings.audioOffset;
     this.settingsElements.offsetValue.textContent = `${this.settings.audioOffset}ms`;
     
-    // Perceptual center slider and display
-    this.settingsElements.perceptualSlider.value = this.settings.perceptualCenter;
-    this.settingsElements.perceptualValue.textContent = `${this.settings.perceptualCenter}ms`;
+    // Subdivision select and display
+    this.settingsElements.subdivisionSelect.value = this.settings.subdivision.toString();
+    const subdivText = this.settings.subdivision === 0 ? 'Beats' : `1/${this.settings.subdivision}`;
+    this.settingsElements.subdivisionValue.textContent = subdivText;
     
-    // Adaptive bias select
-    this.settingsElements.adaptiveBiasSelect.value = this.settings.adaptiveBias.toString();
-    this.settingsElements.adaptiveBiasValue.textContent = this.settings.adaptiveBias ? 'ON' : 'OFF';
-    
-    // Lyrics timing select
-    this.settingsElements.lyricsEnabledSelect.value = this.settings.useLyrics.toString();
-    this.settingsElements.lyricsEnabledValue.textContent = this.settings.useLyrics ? 'ON' : 'OFF';
-    
-    // Quantize mode select
+    // Quantize mode select and display
     this.settingsElements.quantizeSelect.value = this.settings.quantizeMode;
+    this.settingsElements.quantizeValue.textContent = this.settings.quantizeMode === 'hard' ? 'Hard' : 'Soft';
     
-    // Language hint select
-    this.settingsElements.langHintSelect.value = this.settings.langHint;
+    // Beat lock select and display
+    this.settingsElements.beatlockSelect.value = this.settings.beatLock;
+    const beatlockText = this.settings.beatLock.charAt(0).toUpperCase() + this.settings.beatLock.slice(1);
+    this.settingsElements.beatlockValue.textContent = beatlockText;
   }
 
   /**
@@ -265,11 +257,9 @@ export class UIManager {
         this.settings = {
           volume: loaded.volume ?? 0.7,
           audioOffset: loaded.audioOffset ?? 0,
-          perceptualCenter: loaded.perceptualCenter ?? -35,
-          adaptiveBias: loaded.adaptiveBias ?? true,
-          useLyrics: loaded.useLyrics ?? true,
-          quantizeMode: loaded.quantizeMode ?? 'off',
-          langHint: loaded.langHint ?? 'auto',
+          subdivision: loaded.subdivision ?? 4,
+          quantizeMode: loaded.quantizeMode ?? 'hard',
+          beatLock: loaded.beatLock ?? 'soft',
         };
         console.log('Settings loaded from storage');
       }
@@ -357,38 +347,31 @@ export class UIManager {
       }
     });
     
-    // Perceptual center slider
-    this.settingsElements.perceptualSlider.addEventListener('input', (e) => {
-      const perceptualCenter = parseInt(e.target.value);
-      this.updateSetting('perceptualCenter', perceptualCenter);
-      if (callbacks.onPerceptualChange) {
-        callbacks.onPerceptualChange(perceptualCenter);
+    // Subdivision select
+    this.settingsElements.subdivisionSelect.addEventListener('change', (e) => {
+      const subdivision = parseInt(e.target.value);
+      this.updateSetting('subdivision', subdivision);
+      if (callbacks.onSubdivisionChange) {
+        callbacks.onSubdivisionChange(subdivision);
       }
-    });
-    
-    // Adaptive bias select
-    this.settingsElements.adaptiveBiasSelect.addEventListener('change', (e) => {
-      const adaptiveBias = e.target.value === 'true';
-      this.updateSetting('adaptiveBias', adaptiveBias);
-      if (callbacks.onAdaptiveBiasChange) {
-        callbacks.onAdaptiveBiasChange(adaptiveBias);
-      }
-    });
-    
-    // Lyrics enabled select
-    this.settingsElements.lyricsEnabledSelect.addEventListener('change', (e) => {
-      const useLyrics = e.target.value === 'true';
-      this.updateSetting('useLyrics', useLyrics);
     });
     
     // Quantize mode select
     this.settingsElements.quantizeSelect.addEventListener('change', (e) => {
-      this.updateSetting('quantizeMode', e.target.value);
+      const mode = e.target.value;
+      this.updateSetting('quantizeMode', mode);
+      if (callbacks.onQuantizeModeChange) {
+        callbacks.onQuantizeModeChange(mode);
+      }
     });
     
-    // Language hint select
-    this.settingsElements.langHintSelect.addEventListener('change', (e) => {
-      this.updateSetting('langHint', e.target.value);
+    // Beat lock select
+    this.settingsElements.beatlockSelect.addEventListener('change', (e) => {
+      const mode = e.target.value;
+      this.updateSetting('beatLock', mode);
+      if (callbacks.onBeatLockChange) {
+        callbacks.onBeatLockChange(mode);
+      }
     });
   }
 
