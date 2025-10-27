@@ -24,8 +24,8 @@ export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
   
   console.log(`Raw detections: bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length}`);
   
-  // Only use bass onsets for easier gameplay - just follow the beat!
-  const allOnsets = [...bassOnsets]
+  // Combine bass and mid for moderate difficulty (like APT song)
+  const allOnsets = [...bassOnsets, ...midOnsets]
     .sort((a, b) => a.timeMs - b.timeMs);
   
   console.log(`✓ Detected ${allOnsets.length} musical events (bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length})`);
@@ -125,15 +125,15 @@ function findOnsetPeaks(flux, bandName) {
   const hopMs = 10;
   const onsets = [];
   
-  // Much stricter threshold - only pick strong beats
-  const windowSize = 50; // 500ms window for better context
-  const minTimeBetweenMs = 250; // Minimum 250ms between notes (max ~4 notes/sec)
+  // Balanced threshold - match APT difficulty (~700 notes)
+  const windowSize = 20; // 200ms window
+  const minTimeBetweenMs = 80; // Minimum 80ms between notes (max ~12 notes/sec)
   
-  // Threshold multipliers per band (higher = fewer notes)
+  // Threshold multipliers per band (lower = more notes to match APT)
   const thresholdMultiplier = {
-    'bass': 8.0,  // Very selective - only strongest beats
-    'mid': 10.0,  // Even more selective on mid
-    'high': 12.0  // Most selective on high (avoid noise)
+    'bass': 2.0,  // More inclusive
+    'mid': 2.2,   // Slightly more selective on mid
+    'high': 4.0   // More selective on high
   };
   
   const multiplier = thresholdMultiplier[bandName] || 4.0;
@@ -158,12 +158,10 @@ function findOnsetPeaks(flux, bandName) {
     // Much higher threshold - only strong peaks
     const threshold = localAvg * multiplier;
     
-    // Check if this is a strong peak
+    // Check if this is a peak (relaxed criteria for more notes)
     const isPeak = current > threshold && 
                    current > flux[i-1] && 
-                   current > flux[i+1] &&
-                   current > flux[i-2] && 
-                   current > flux[i+2];
+                   current > flux[i+1];
     
     if (isPeak) {
       onsets.push({
