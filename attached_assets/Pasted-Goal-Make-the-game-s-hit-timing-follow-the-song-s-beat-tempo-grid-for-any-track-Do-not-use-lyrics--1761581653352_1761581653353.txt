@@ -1,0 +1,200 @@
+Goal: Make the game’s hit timing follow the song’s beat/tempo grid for any track.
+Do not use lyrics/onsets/bass-only anymore. Build a robust tempo + phase tracker and quantize notes to the beat grid (and its subdivisions). Keep gameplay/UI the same.
+
+🔧 What to build (exact modules & behavior)
+0) Files (keep existing, add/replace where named)
+/index.html
+/style.css
+/js/main.js
+/js/audio.js
+/js/game.js
+/js/ui.js
+/js/input.js
+/js/utils.js
+/js/beattrack.js     # NEW: tempo/phase detection + beat grid
+/README.md
+
+1) Single timebase (strict)
+
+Use Web Audio AudioContext as the only clock.
+
+// audio.js
+let ctx, startCtxTime=0, startSongTimeMs=0, pausedAtMs=0;
+let audioOffsetMs = loadSetting('audioOffsetMs', 0); // user calibration ±
+export function songTimeMs(){
+  const t = ctx.getOutputTimestamp?.().contextTime ?? ctx.currentTime;
+  return startSongTimeMs + (t - startCtxTime)*1000 + audioOffsetMs;
+}
+export function songTimeAtEventMs(evtTS){
+  // judge at the exact hardware event time (not next frame)
+  const nowSong = songTimeMs();
+  const nowPerf = performance.now();
+  return nowSong + (evtTS - nowPerf);
+}
+
+
+On play/pause/seek, update startCtxTime/startSongTimeMs precisely.
+
+2) Beat tracker (beattrack.js)
+
+Implement tempo (BPM) + phase using OfflineAudioContext pre-scan:
+
+Pipeline (whole track or first 90–120s):
+
+Downmix to mono, resample (e.g., 11025–22050 Hz).
+
+High-pass 25–40 Hz (remove DC & sub), low-pass ~2.5 kHz (reduce vocals).
+
+Frame with hop = 10 ms, compute spectral flux.
+
+Tempo estimation:
+
+Compute autocorrelation / comb-filter of the flux, prefer 70–180 BPM.
+
+Collapse octave errors (x2, x0.5) by evaluating beat-salience cost.
+
+Phase estimation:
+
+For candidate BPMs, slide a beat grid to maximize flux-on-beat score across a few seconds.
+
+Keep best (bpm, phaseMs) pair.
+
+Output:
+
+export async function analyzeBeatGrid(audioBuffer){
+  return {
+    bpm: number,              // e.g., 128.3
+    phaseMs: number,          // first beat time (ms) relative to song 0
+    confidence: number,       // 0..1
+    drift: {ppm: number}      // optional long-term drift estimate
+  };
+}
+
+3) Build the beat grid (+ subdivisions)
+
+Given (bpm, phaseMs):
+
+export function makeBeatGrid({bpm, phaseMs, lengthMs, subdiv=2|4}){
+  const beatMs = 60000 / bpm;
+  const times = [];
+  for(let t = phaseMs; t <= lengthMs; t += beatMs){
+    times.push({tms: t, type:'beat'});
+    // subdivisions (e.g., 1/2, 1/4):
+    const step = beatMs / subdiv;
+    for(let i=1;i<subdiv;i++){
+      times.push({tms: t + i*step, type:'sub'});
+    }
+  }
+  return times.sort((a,b)=>a.tms-b.tms);
+}
+
+
+Expose Settings → Subdivision: Off / 2 / 3 / 4. Default 4 (sixteenth feel on 4/4).
+
+4) Map notes to beat grid (quantization)
+
+Replace any prior note generation with:
+
+chart.notes = grid.times.map((g,i)=>({ timeMs: g.tms, lane: laneFor(i,g.type) }))
+
+laneFor: deterministic pattern (e.g., beats cycle 0-1-2-3, subs mirror) ensuring variety, never >2 same lane in a row.
+
+Important: If you still build notes from any source, quantize them:
+
+function qToGrid(ms, grid, mode='hard', maxSnapMs=60){
+  // find nearest grid.tms; if |Δ|<=maxSnapMs, return snapped; else return ms (soft).
+  // mode 'hard': always snap; 'soft': snap only if close.
+}
+
+
+Default mode = 'hard' with maxSnapMs = 60.
+
+5) Draw & travel so notes arrive exactly on grid time
+
+Absolute position from time (no velocity integration):
+
+// game.js render
+const APPROACH_MS = loadSetting('approachMs', 1200);
+const yFromMs = (targetMs, nowMs) => {
+  const t = (nowMs - (targetMs - APPROACH_MS)) / APPROACH_MS; // 0..1
+  return SPAWN_Y + clamp01(t) * (HITLINE_Y - SPAWN_Y);
+};
+
+
+At now==targetMs, the note sits on the hit line.
+
+6) Judgement = (keyEventSongMs - targetMs) only
+// input.js
+const eventMs = songTimeAtEventMs(e.timeStamp);
+const delta = eventMs - note.targetMs; // ms
+// windows (tuneable):
+PERF=±35, GREAT=±70, GOOD=±110
+
+
+Never judge by sprite Y; Y is visual only.
+
+7) Drift control & adaptive resync
+
+Every ~5 s:
+
+Re-evaluate beat phase over the last N seconds (small window) with the current BPM to correct phase drift (do not change BPM often, only phase).
+
+If |phaseError| > 20 ms, shift future targetMs by a small lerp (e.g., apply 50% correction to avoid pops).
+
+Optionally expose Beat Lock: Off / Soft (phase only) / Hard (phase+tempo). Default Soft.
+
+8) Calibration & debug
+
+Settings:
+
+Audio Offset (ms) slider (−120..+120, step 5)
+
+Subdivision: Off/2/3/4 (default 4)
+
+Quantize: Hard/Soft (default Hard)
+
+Beat Lock: Off/Soft/Hard (default Soft)
+
+Debug HUD (toggle with ~):
+
+BPM: 128.3 phase: 87ms conf: 0.82
+
+Δphase(ms): …
+
+grid mode: 1/4 (hard)
+
+9) Fallback strategy
+
+If confidence < 0.5:
+
+Try alternative BPM octave (×2 or ×0.5) and pick the one with higher on-grid flux.
+
+If still low, default to guessed BPM from global peak and enable Soft quantize with wider maxSnapMs=80.
+
+10) README update
+
+Add a “Beat-Sync Mode” section:
+
+How it works (tempo+phase, grid, quantize)
+
+How to calibrate Audio Offset
+
+How to choose subdivisions to match genre (e.g., hip-hop → 1/4 or 1/8; EDM → 1/4/1/8 with Hard)
+
+✅ Acceptance (must pass)
+
+With any rhythmic track, tapping on the metronome clicks (enable a temp metronome in beattrack.js) yields Perfect/Great consistently.
+
+Turning Subdivision from 2→4 doubles visual note density but still aligns to the beat grid.
+
+Pauses, tab switches, and FPS drops do not desync judgments.
+
+Dev notes
+
+Keep everything browser-only (no servers/libs).
+
+Use OfflineAudioContext for analysis; if blocked, perform a 90s pre-scan in smaller chunks.
+
+Print to console on load: BeatSync ON • BPM=xxx phase=yyy ms (conf=zz).
+
+Deliverables: Fully wired /js/beattrack.js, quantized chart.notes, strict absolute-time movement & judgment, settings + HUD, and README beatsync section. Replace any lyric/onset logic with this beat-grid system.
