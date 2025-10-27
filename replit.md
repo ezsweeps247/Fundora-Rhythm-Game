@@ -6,6 +6,18 @@ A browser-based rhythm game featuring 4-lane keyboard gameplay with precise timi
 
 The application uses a dual-architecture approach: a legacy vanilla JavaScript implementation in the `public/` directory (fully functional standalone game) and a modern React/TypeScript setup in `client/` (currently scaffolded but not implemented). The vanilla JS version serves as the primary gameplay implementation.
 
+## Recent Changes
+
+**October 27, 2025 - Beat-Sync Engine (Major Refactor)**
+- Replaced lyric-based timing system with automatic beat/tempo detection
+- Added `beattrack.js` module for spectral flux analysis and beat grid generation
+- Removed adaptive bias and perceptual center features (simplified to audio offset only)
+- Updated settings UI: replaced Perceptual Center/Adaptive Bias/Lyrics Enabled/Language Hint with Subdivision/Quantize Mode/Beat Lock
+- Implemented quantization for cached charts (notes snap to detected beat grid)
+- Updated debug HUD to show BPM, phase, confidence, grid mode instead of lyric-sync metrics
+- Changed console banner from "SYNC FEEL FIXED" to "BEAT SYNC ENGINE"
+- All note positioning now uses absolute time-based yFromMs() function (no velocity-based movement)
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -19,17 +31,24 @@ Preferred communication style: Simple, everyday language.
 - **Modern Implementation (Scaffolded):** React + TypeScript with Vite, shadcn/ui component library, TanStack Query - currently contains only boilerplate with no game logic implemented
 
 **Legacy Game Architecture (public/):**
-- **Modular ES6 Structure:** Six core modules handling distinct concerns:
+- **Modular ES6 Structure:** Seven core modules handling distinct concerns:
   - `main.js` - Application orchestrator and event binding
   - `game.js` - Game loop, state machine, rendering, hit detection
-  - `audio.js` - Web Audio API management with automatic beep tone fallback
-  - `chart.js` - Song chart loading and validation
+  - `audio.js` - Web Audio API management with precise timing (songTimeMs/songTimeAtEventMs)
+  - `chart.js` - Beat-grid chart generation and cached chart quantization
+  - `beattrack.js` - Tempo/phase detection using spectral flux analysis, beat grid generation
   - `input.js` - Keyboard handling and customizable key mapping
   - `ui.js` - Screen transitions, HUD updates, settings persistence
 
 - **Game State Machine:** Transitions between MENU → PLAYING → PAUSED → RESULTS states
 - **Canvas Rendering:** Fixed 800×600px game canvas with 4 equal-width lanes
-- **Timing System:** 60 FPS game loop using `requestAnimationFrame` with precise timing windows (±35ms Perfect, ±70ms Great, ±110ms Good)
+- **Beat-Sync Timing System:**
+  - Automatic tempo detection (70-180 BPM) using OfflineAudioContext spectral flux analysis
+  - Phase-aligned beat grid with configurable subdivisions (1/2, 1/3, 1/4 notes)
+  - Absolute time-based positioning (notes rendered via yFromMs function, no velocity drift)
+  - Event timestamp judgment for frame-independent timing (±35ms Perfect, ±70ms Great, ±110ms Good)
+  - Optional quantization for cached charts (hard/soft modes snap notes to detected beat grid)
+  - Audio offset calibration for system latency compensation
 
 **Modern Stack (client/):**
 - **React 18** with TypeScript and Vite bundler
@@ -65,7 +84,7 @@ Preferred communication style: Simple, everyday language.
 ### Data Storage Solutions
 
 **Browser localStorage (Primary for Game Data):**
-- Settings: volume level, audio offset timing, custom key bindings
+- Settings: volume level, audio offset timing, subdivision (2/3/4), quantize mode (hard/soft), beat lock (off/soft/hard), custom key bindings
 - Best Scores: per-song high scores with grade/accuracy
 - No backend persistence - all game state is client-side
 
