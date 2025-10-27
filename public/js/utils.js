@@ -319,3 +319,15 @@ export async function audioHash32(audioBuffer, seconds = 90) {
   }
   return h >>> 0;
 }
+
+/**
+ * Generate unique song key from metadata + audio hash
+ * Used for per-song calibration storage
+ * 
+ * @param {Object} meta - Song metadata {title, path}
+ * @param {number} aHash - Audio hash value
+ * @returns {string} Unique song key
+ */
+export function songKey(meta, aHash) {
+  return `${meta.path || meta.title || 'untitled'}@${aHash}`;
+}

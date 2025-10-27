@@ -1,0 +1,195 @@
+요구사항: **진행 중인 프로젝트를 “수정”**해서 blackpink-jump에서 잘 맞던 비트/그리드 감각을 모든 노래에 적용, 두 곡에서 발생한 같은 패턴 반복 버그 제거, 그리고 난이도(E/M/H) 도입.
+UI/판정/렌더링 스타일은 그대로, 오직 비트 트래킹/패턴 생성/난이도/시드 로직만 변경한다.
+
+🔧 PATCH PROMPT — Apply BLACKPINK Beat Profile to All Songs + Unique Patterns + E/M/H
+✅ “변경만” 수행 (현 프로젝트 유지)
+
+HTML/CSS/JS 단일 페이지 구조 유지
+
+기존 절대시간 판정(eventSongMs − targetMs)·HUD·로컬스토리지·키맵 보존
+
+새 파일 추가는 허용되나, 기존 인터페이스는 가능한 한 그대로
+
+0) 수정/추가 파일
+/js/beattrack.js       // MODIFY: 참조 프로필 기반 BPM/Phase 추정 + soft phase lock
+/js/patterns.js        // MODIFY: 난이도 파라미터 + 밀도(NPS) 자동 조정 + seed 버그 수정
+/js/utils.js           // MODIFY: robust song hash + xorshift32 + hash32
+/js/game.js            // MODIFY: 곡 로드 시 프로필 채택/난이도/시드/캐시 무효화 연결
+/js/ui.js              // MODIFY: Settings — Difficulty(E/M/H), Adopt BLACKPINK toggle, Pattern Seed
+
+1) BLACKPINK 참조 프로필 저장/로드 (beattrack.js)
+
+상수 및 저장 키 추가:
+
+export const REF_PROFILE_KEY = 'REF_BEAT_PROFILE_BLACKPINK';
+/** shape:
+ * { bpm:number, subdiv:4, quantize:'hard',
+ *   preFilters:{hp:30, lp:2600}, fluxHopMs:10,
+ *   phaseKernelMs:1400, phaseSnapMs:18,
+ *   onsetMinGapMs:95, audioOffsetLearnedMs:number }
+ */
+
+
+사용자가 blackpink-jump를 정상 플레이 완료하면, 현재 분석된 bpm/phase와 설정(오디오 오프셋 등)을 **localStorage[REF_PROFILE_KEY]**에 저장/갱신.
+
+2) 곡 식별 해시 + 시드 충돌 제거 (utils.js)
+export function xorshift32(seed){ let x=seed|0||1; return ()=>((x^=x<<13,x^=x>>>17,x^=x<<5)>>>0)/4294967296; }
+
+export async function hash32(str){
+  const b=new TextEncoder().encode(str);
+  const d=await crypto.subtle.digest('SHA-256', b);
+  const v=new DataView(d);
+  let h=0; for(let i=0;i<v.byteLength;i+=4) h^=v.getUint32(i);
+  return h>>>0;
+}
+
+export async function audioHash32(audioBuffer, seconds=90){
+  const sr=audioBuffer.sampleRate, frames=Math.min(audioBuffer.length, seconds*sr|0);
+  const chs=audioBuffer.numberOfChannels, mono=new Float32Array(frames);
+  for(let c=0;c<chs;c++){ const cd=audioBuffer.getChannelData(c); for(let i=0;i<frames;i++) mono[i]+=cd[i]/chs; }
+  const factor=Math.max(1, Math.floor(sr/11025)), len=Math.ceil(frames/factor), ds=new Float32Array(len);
+  for(let i=0,j=0;i<frames;i+=factor) ds[j++]=mono[i];
+  const raw=new Uint8Array(ds.length*2);
+  for(let i=0;i<ds.length;i++){ const q=((Math.max(-1,Math.min(1,ds[i]))*32767)|0); raw[i*2]=q&255; raw[i*2+1]=(q>>8)&255; }
+  const d=await crypto.subtle.digest('SHA-256', raw);
+  const v=new DataView(d); let h=0; for(let i=0;i<v.byteLength;i+=4) h^=v.getUint32(i); return h>>>0;
+}
+
+export function songKey(meta, aHash){ return `${meta.path||meta.title||'untitled'}@${aHash}`; }
+
+3) BLACKPINK 프로필 채택 분석 (beattrack.js)
+
+analyzeBeatGrid(audioBuffer, options) 수정:
+
+const ref = JSON.parse(localStorage.getItem(REF_PROFILE_KEY) || 'null');
+
+ref가 있으면: preFilters(hp≈30, lp≈2600), fluxHopMs=10로 스펙트럴 플럭스 생성
+
+BPM 후보(70–180)에서 {×0.5, ×1, ×2} 옥타브 평가 → ref.subdiv(=4)에서 on-grid flux 최대인 것을 선택
+
+Phase 탐색 범위 ±ref.phaseKernelMs(기본 1200–1600ms) 안에서 flux 최대 위치 선택
+
+런타임 중 soft phase snap: 2–4초마다 최근 2초창으로 phase 미세 교정(±ref.phaseSnapMs 이내면 미래 노트에 50%만 적용)
+
+반환: { bpm, phaseMs, confidence, adoptedFromRef: !!ref }
+
+그리드 생성 시 ref가 있으면:
+
+subdiv = ref.subdiv (4), quantize='hard'로 강제 스냅
+
+phase는 soft-snap으로 드리프트 완화
+
+4) 난이도(E/M/H) 프리셋 + rose-apt 체감 정렬 (patterns.js / ui.js)
+
+UI에 Difficulty: Easy / Medium(기본) / Hard
+
+프리셋:
+
+export const DIFF = {
+  Easy:   { subdiv:2, skipSubProb:0.55, syncop:0.10, maxSameLane:2, minIoiLaneMs:150, jackGuard:true, targetNps:1.8 },
+  Medium: { subdiv:4, skipSubProb:0.45, syncop:0.20, maxSameLane:2, minIoiLaneMs:120, jackGuard:true, targetNps: (window.ROSE_APT_NPS||2.5) },
+  Hard:   { subdiv:4, skipSubProb:0.25, syncop:0.30, maxSameLane:3, minIoiLaneMs:95,  jackGuard:true, targetNps:3.6 }
+};
+
+
+generatePattern(gridTimes, opt)에 skipSubProb/syncop/minIoiLaneMs/maxSameLane 반영.
+
+패턴 생성 후 NPS 피드백으로 skipSubProb 1회 미세 조정(±0.10)해 목표 NPS 수렴.
+
+5) “같은 패턴” 버그 제거 (game.js / patterns.js)
+
+시드 구성:
+
+// game.js
+const songSeed = await hash32(`${songKey(meta, aHash)}:${meta.bpm.toFixed(2)}:${Math.round(meta.phaseMs)}`);
+const runNonce = settings.patternSeedLocked ? (settings.patternSeed|0) : (crypto.getRandomValues(new Uint32Array(1))[0]|0);
+const playSeed = (songSeed ^ runNonce)>>>0;
+console.log('[Seed]', {songSeed, runNonce, playSeed});
+
+
+캐시 키는 songSeed + difficulty + generatorVersion + subdiv를 포함해서, 곡/난이도 변경 시 항상 재생성.
+
+Lock Seed가 꺼져 있으면 매 플레이마다 runNonce 새로 생성.
+
+6) 곡별 보정값 저장 (game.js)
+
+곡 로드시:
+
+aHash = await audioHash32(audioBuffer)
+
+sig = songKey(meta, aHash)
+
+CALIBR_sig(로컬스토리지) 있으면 phaseMs/offsetMs 우선 적용
+
+ref가 있으면 settings.audioOffsetMs = blend( existing, ref.audioOffsetLearnedMs, 0.5 )
+
+플레이 종료 또는 오프셋 변경 시:
+
+localStorage.setItem('CALIBR_'+sig, JSON.stringify({
+  bpm, phaseMs, offsetMs: settings.audioOffsetMs|0, confidence, adopted:true
+}));
+
+7) 통합 로직(요약) (game.js)
+// 1) 분석
+const ref = JSON.parse(localStorage.getItem(REF_PROFILE_KEY)||'null');
+const analysis = await analyzeBeatGrid(audioBuffer, { ref });
+const grid = makeBeatGrid({ bpm:analysis.bpm, phaseMs:analysis.phaseMs, lengthMs:meta.lengthMs, subdiv: ref?.subdiv||4 });
+
+// 2) 난이도
+const preset = DIFF[settings.difficulty||'Medium'];
+// (ref가 있으면 subdiv를 preset 대신 ref.subdiv로 고정)
+
+// 3) 패턴 생성
+const notes = generatePattern(grid, {
+  lanes:4, subdiv: ref?.subdiv ?? preset.subdiv,
+  skipSubProb: preset.skipSubProb, syncopation: preset.syncop,
+  maxSameLane: preset.maxSameLane, minInterOnsetMsPerLane: preset.minIoiLaneMs,
+  jackGuard: preset.jackGuard, seed: playSeed
+});
+// NPS 피드백으로 한 번 미세조정 (과잉/부족 시 skipSubProb 조절)
+
+// 4) 차트 구성
+chart = { title:meta.title, audio:meta.src, offsetMs: 0, bpm:analysis.bpm, lanes:4, notes };
+
+// 5) 소프트 페이즈 락은 런타임에서 주기적으로 note.targetMs에 반영 (미래 노트만 50% 보정)
+
+8) Settings/UI (ui.js)
+
+토글: Adopt BLACKPINK profile (기본 ON)
+
+드롭다운: Difficulty (E/M/H, 기본 Medium)
+
+입력: Pattern Seed (숫자) + 🎲 Randomize 버튼, Lock Seed 체크박스
+
+슬라이더: Audio Offset(ms) (−120~+120, step 5)
+
+HUD(토글):
+BeatLock: REF • BPM=xxx • phase=yyyms • Subdiv=4 • Offs=zzms • Diff=Medium
+
+9) 수용 기준 (반드시 충족)
+
+blackpink-jump는 기존과 동일한 체감.
+
+다른 모든 노래도 박자에 맞게 스냅되어, 메트로놈 테스트에서 Perfect/Great가 Δ≈0ms 근처로 몰림.
+
+최근 추가한 2곡: Lock Seed=Off로 여러 번 시작 시 패턴이 매번 달라짐(단, 비트는 항상 맞음).
+
+Difficulty를 바꾸면 NPS/밀도/잭 빈도가 의미 있게 변하며, Medium ≈ rose-apt 체감 난이도.
+
+곡 1회 플레이 후 재플레이 시 phase/offset 학습 덕분에 더 타이트하게 느껴짐.
+
+10) 로그/배너
+
+로드 시:
+
+[BeatProfile] REF loaded ✅ subdiv=4, quantize=hard
+[BeatTrack] bpm=..., phase=...ms (conf=..., adoptedFromRef=...)
+[Seed] {songSeed, runNonce, playSeed}
+[Pattern] diff=Medium nps=...
+
+
+완료 배너:
+PATCH ✅ BLACKPINK profile applied to all • unique patterns • E/M/H added • Medium ≈ rose-apt
+
+금지: 렌더 스타일/판정 윈도우/키맵/메뉴 디자인을 바꾸지 말 것.
+허용: OfflineAudioContext 사용(분석), localStorage 저장.
