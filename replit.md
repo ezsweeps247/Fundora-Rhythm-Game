@@ -8,6 +8,21 @@ The application uses a dual-architecture approach: a legacy vanilla JavaScript i
 
 ## Recent Changes
 
+**October 27, 2025 - Seed-Based Pattern Generation & Difficulty System**
+- Implemented deterministic seed-based procedural pattern generation using audio hashing
+- Added `patterns.js` module with `generatePattern()` and difficulty presets
+- Added `utils.js` with hash utilities (hash32, audioHash32, xorshift32)
+- Created three difficulty presets: Easy (1.8 NPS), Medium (2.5 NPS), Hard (3.6 NPS)
+- Difficulty setting added to UI with dropdown in settings panel
+- Pattern seed generation: song audio hash + BPM + phase + difficulty → deterministic unique seed
+- Enhanced jack guard: per-lane timing tracking prevents unfair same-lane spam (minIoiLaneMs=120ms, maxSameLane=2)
+- Implemented NPS enforcement via `adjustDensity()` function to match difficulty targets
+- Auto-chart fallback now respects difficulty settings
+- Fixed difficulty select event listener bug (was not saving)
+- Fixed main.js to pass difficulty to chart loading
+- Updated console banner to "PATTERN/DIFFICULTY FIX"
+- Each song + difficulty combo produces unique, repeatable patterns
+
 **October 27, 2025 - Beat-Sync Engine (Major Refactor)**
 - Replaced lyric-based timing system with automatic beat/tempo detection
 - Added `beattrack.js` module for spectral flux analysis and beat grid generation
@@ -15,7 +30,6 @@ The application uses a dual-architecture approach: a legacy vanilla JavaScript i
 - Updated settings UI: replaced Perceptual Center/Adaptive Bias/Lyrics Enabled/Language Hint with Subdivision/Quantize Mode/Beat Lock
 - Implemented quantization for cached charts (notes snap to detected beat grid)
 - Updated debug HUD to show BPM, phase, confidence, grid mode instead of lyric-sync metrics
-- Changed console banner from "SYNC FEEL FIXED" to "BEAT SYNC ENGINE"
 - All note positioning now uses absolute time-based yFromMs() function (no velocity-based movement)
 
 ## User Preferences
@@ -31,12 +45,14 @@ Preferred communication style: Simple, everyday language.
 - **Modern Implementation (Scaffolded):** React + TypeScript with Vite, shadcn/ui component library, TanStack Query - currently contains only boilerplate with no game logic implemented
 
 **Legacy Game Architecture (public/):**
-- **Modular ES6 Structure:** Seven core modules handling distinct concerns:
+- **Modular ES6 Structure:** Nine core modules handling distinct concerns:
   - `main.js` - Application orchestrator and event binding
   - `game.js` - Game loop, state machine, rendering, hit detection
   - `audio.js` - Web Audio API management with precise timing (songTimeMs/songTimeAtEventMs)
-  - `chart.js` - Beat-grid chart generation and cached chart quantization
+  - `chart.js` - Seed-based chart generation, cached chart quantization, difficulty integration
   - `beattrack.js` - Tempo/phase detection using spectral flux analysis, beat grid generation
+  - `patterns.js` - Procedural pattern generation with difficulty presets and jack guard
+  - `utils.js` - Hash utilities for deterministic seed generation (hash32, audioHash32, xorshift32)
   - `input.js` - Keyboard handling and customizable key mapping
   - `ui.js` - Screen transitions, HUD updates, settings persistence
 
@@ -84,7 +100,7 @@ Preferred communication style: Simple, everyday language.
 ### Data Storage Solutions
 
 **Browser localStorage (Primary for Game Data):**
-- Settings: volume level, audio offset timing, subdivision (2/3/4), quantize mode (hard/soft), beat lock (off/soft/hard), custom key bindings
+- Settings: volume level, audio offset timing, difficulty (Easy/Medium/Hard), subdivision (2/3/4), quantize mode (hard/soft), beat lock (off/soft/hard), custom key bindings
 - Best Scores: per-song high scores with grade/accuracy
 - No backend persistence - all game state is client-side
 
