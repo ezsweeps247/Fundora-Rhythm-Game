@@ -14,9 +14,9 @@
  * - Sorting notes by time
  */
 
-import { analyzeBeatGrid, makeBeatGrid, laneForGridIndex, quantizeToGrid } from './beattrack.js';
+import { analyzeBeatGrid, makeBeatGrid, laneForGridIndex, quantizeToGrid, REF_PROFILE_KEY } from './beattrack.js';
 import { generatePattern, adjustDensity, DIFFICULTY_PRESETS } from './patterns.js';
-import { hash32, audioHash32 } from './utils.js';
+import { hash32, audioHash32, songKey } from './utils.js';
 
 export class ChartManager {
   constructor() {
@@ -26,30 +26,65 @@ export class ChartManager {
 
   /**
    * Build a unique, deterministic seed for pattern generation
-   * Each song + difficulty combo gets a unique, repeatable pattern
+   * NEW: songSeed + runNonce = playSeed system
    * 
    * @param {object} meta - Song metadata {title, bpm, phaseMs, path}
    * @param {AudioBuffer} audioBuffer - Audio buffer
+   * @param {number} aHash - Pre-computed audio hash (for efficiency)
    * @param {object} settings - Settings {difficulty, patternSeedLocked, patternSeed}
    * @returns {Promise<number>} Play seed (32-bit unsigned integer)
    */
-  async buildPlaySeed(meta, audioBuffer, settings = {}) {
-    // Generate audio hash from first 90 seconds
-    const ah = await audioHash32(audioBuffer, 90);
-    
-    // Build unique song key including difficulty for different patterns per difficulty
-    const songId = meta.path || meta.title || `song_${Date.now()}`;
-    const difficulty = settings.difficulty || 'Medium';
-    const baseKey = `${songId}:${meta.bpm.toFixed(2)}:${Math.round(meta.phaseMs)}:${ah}:${difficulty}`;
+  async buildPlaySeed(meta, audioBuffer, aHash, settings = {}) {
+    // songSeed = hash(songKey + BPM + phase)
+    const sig = songKey(meta, aHash);
+    const baseKey = `${sig}:${meta.bpm.toFixed(2)}:${Math.round(meta.phaseMs)}`;
     const songSeed = await hash32(baseKey);
     
-    // By default, seed is deterministic (same song+difficulty = same pattern)
-    // Only add random nonce if pattern variation is explicitly enabled
-    const playSeed = songSeed >>> 0;
+    // runNonce: if pattern seed is locked, use the locked value; else random
+    const runNonce = settings.patternSeedLocked ? (settings.patternSeed | 0) : 
+      (crypto.getRandomValues(new Uint32Array(1))[0] | 0);
     
-    console.log('[Seed]', { songSeed, playSeed, difficulty, song: meta.title || songId.substring(0, 30) });
+    // playSeed = songSeed XOR runNonce
+    const playSeed = (songSeed ^ runNonce) >>> 0;
     
-    return playSeed;
+    const difficulty = settings.difficulty || 'Medium';
+    console.log('[Seed]', { songSeed, runNonce, playSeed, difficulty, song: meta.title });
+    
+    return { playSeed, songSeed, runNonce };
+  }
+
+  /**
+   * Load per-song calibration from localStorage
+   * Returns stored phaseMs, offsetMs, and confidence for this specific song
+   * 
+   * @param {string} sig - Song signature (from songKey)
+   * @returns {object|null} Calibration data or null
+   */
+  loadCalibration(sig) {
+    const key = `CALIBR_${sig}`;
+    try {
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Save per-song calibration to localStorage
+   * Stores phaseMs, offsetMs, BPM, and confidence for this song
+   * 
+   * @param {string} sig - Song signature (from songKey)
+   * @param {object} calibData - {bpm, phaseMs, offsetMs, confidence, adopted}
+   */
+  saveCalibration(sig, calibData) {
+    const key = `CALIBR_${sig}`;
+    try {
+      localStorage.setItem(key, JSON.stringify(calibData));
+      console.log(`✓ Saved calibration for ${sig.substring(0, 30)}...`);
+    } catch (e) {
+      console.warn('Failed to save calibration:', e);
+    }
   }
 
   /**
@@ -102,20 +137,25 @@ export class ChartManager {
 
   /**
    * Load chart with beat tracking
-   * Priority: Cached JSON → Beat grid analysis
+   * NEW: Integrates BLACKPINK profile adoption, per-song calibration, and new seed system
    * 
    * @param {string} songId - Song ID (e.g., 'sample1')
    * @param {string} audioPath - Path to audio file
    * @param {AudioBuffer} audioBuffer - Audio buffer for beat analysis
-   * @param {Object} settings - Settings {subdivision, quantizeMode, beatLock}
-   * @returns {Promise<object>} Generated chart
+   * @param {Object} settings - Settings {subdivision, quantizeMode, beatLock, difficulty, patternSeedLocked, patternSeed, audioOffsetMs}
+   * @returns {Promise<object>} Generated chart with {notes, title, bpm, phaseMs, etc.}
    */
   async loadChartWithBeatTracking(songId, audioPath, audioBuffer, settings = {}) {
     const {
-      subdivision = 4,      // 0=beats only, 2/3/4=subdivisions
-      quantizeMode = 'hard', // 'hard' or 'soft'
-      beatLock = 'soft'     // 'off', 'soft', 'hard'
+      subdivision = 4,
+      quantizeMode = 'hard',
+      beatLock = 'soft',
+      difficulty = 'Medium',
+      adoptBlackpinkProfile = true,
     } = settings;
+    
+    // Step 1: Compute audio hash for song identification
+    const aHash = audioBuffer ? await audioHash32(audioBuffer, 90) : 0;
     
     // Try to load cached chart first
     try {
@@ -155,8 +195,11 @@ export class ChartManager {
                 path: audioPath,
               };
               
-              const playSeed = await this.buildPlaySeed(meta, audioBuffer, settings);
-              const difficultyKey = settings.difficulty || 'Medium';
+              // NEW: Use updated buildPlaySeed with aHash
+              const seedResult = await this.buildPlaySeed(meta, audioBuffer, aHash, settings);
+              const playSeed = seedResult.playSeed;
+              
+              const difficultyKey = difficulty;
               const preset = DIFFICULTY_PRESETS[difficultyKey] || DIFFICULTY_PRESETS['Medium'];
               
               if (!DIFFICULTY_PRESETS[difficultyKey]) {
@@ -177,7 +220,8 @@ export class ChartManager {
               chart.notes = notes;
               
               const nps = chart.notes.length / (audioBuffer.duration);
-              console.log(`✓ Generated ${chart.notes.length} notes (${nps.toFixed(2)} NPS, ${settings.difficulty || 'Medium'}): ${chart.title}`);
+              console.log(`[Pattern] diff=${difficultyKey} nps=${nps.toFixed(2)}`);
+              console.log(`✓ Generated ${chart.notes.length} notes (${nps.toFixed(2)} NPS, ${difficultyKey}): ${chart.title}`);
             }
             
             chart.beatGridInfo = gridInfo;
@@ -232,8 +276,11 @@ export class ChartManager {
             path: audioPath,
           };
           
-          const playSeed = await this.buildPlaySeed(meta, audioBuffer, settings);
-          const preset = DIFFICULTY_PRESETS[settings.difficulty || 'Medium'];
+          // NEW: Use updated buildPlaySeed with aHash
+          const seedResult = await this.buildPlaySeed(meta, audioBuffer, aHash, settings);
+          const playSeed = seedResult.playSeed;
+          
+          const preset = DIFFICULTY_PRESETS[difficulty];
           
           notes = generatePattern(gridInfo.onsets, {
             lanes: 4,
@@ -241,8 +288,14 @@ export class ChartManager {
             ...preset,
           });
           
+          // Enforce target NPS if specified
+          if (preset.targetNPS) {
+            notes = adjustDensity(notes, audioBuffer.duration * 1000, preset.targetNPS, playSeed);
+          }
+          
           const nps = notes.length / (audioBuffer.duration);
-          console.log(`✓ Generated ${notes.length} notes (${nps.toFixed(2)} NPS, ${settings.difficulty || 'Medium'})`);
+          console.log(`[Pattern] diff=${difficulty} nps=${nps.toFixed(2)}`);
+          console.log(`✓ Generated ${notes.length} notes (${nps.toFixed(2)} NPS, ${difficulty})`);
         } else {
           // Fallback to simple pattern if onset detection fails
           const duration = audioBuffer.duration;
