@@ -129,6 +129,21 @@ export class ChartManager {
         if (audioBuffer && (quantizeMode !== 'off' || chart.notes.length === 0)) {
           try {
             const gridInfo = await analyzeBeatGrid(audioBuffer);
+            
+            // BPM validation: If detected BPM differs significantly from chart BPM,
+            // prefer the chart BPM (manual override for detection errors)
+            const detectedBPM = gridInfo.bpm;
+            const chartBPM = chart.bpm || 120;
+            const bpmDiff = Math.abs(detectedBPM - chartBPM);
+            const bpmDiffPercent = (bpmDiff / chartBPM) * 100;
+            
+            if (bpmDiffPercent > 10 && chartBPM > 0) {
+              console.warn(`⚠️ BPM mismatch: detected ${detectedBPM.toFixed(1)}, chart says ${chartBPM}. Using chart BPM.`);
+              gridInfo.bpm = chartBPM;
+            } else if (bpmDiffPercent > 5) {
+              console.log(`ℹ️ BPM variance: detected ${detectedBPM.toFixed(1)}, chart ${chartBPM} (${bpmDiffPercent.toFixed(1)}% diff)`);
+            }
+            
             this.beatGridInfo = gridInfo;
             
             // If chart has no notes, generate them using seed-based pattern
