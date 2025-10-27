@@ -172,6 +172,14 @@ export class ChartManager {
           } catch (error) {
             console.warn('Musical analysis failed, using original chart:', error);
           }
+        } else if (chart.notes.length === 0) {
+          // Fallback: Chart has no notes and no audioBuffer for analysis
+          // Generate simple pattern using BPM from chart
+          console.warn(`No audio analysis available for ${chart.title}, using fallback pattern with BPM=${chart.bpm}`);
+          const duration = 180; // Assume 3 minute song as fallback
+          const generated = this.generateAutoChart(chart.bpm, duration, settings);
+          chart.notes = generated.notes;
+          console.log(`✓ Generated ${chart.notes.length} fallback notes: ${chart.title}`);
         } else {
           console.log(`✓ Loaded cached chart: ${chart.title}`);
         }
