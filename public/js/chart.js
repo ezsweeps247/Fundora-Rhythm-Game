@@ -84,7 +84,8 @@ export class ChartManager {
     const {
       useLyrics = true,
       quantizeMode = 'off',
-      langHint = 'auto'
+      langHint = 'auto',
+      perceptualCenter = -35
     } = settings;
     
     // Try to load cached chart first
@@ -114,11 +115,13 @@ export class ChartManager {
           const entries = this.lyricsManager.parseLRC(lrcText);
           
           if (entries.length > 0) {
-            notes = this.lyricsManager.generateNotesFromLRC(
+            notes = await this.lyricsManager.generateNotesFromLRC(
               entries,
               bpm,
               quantizeMode,
-              langHint
+              langHint,
+              perceptualCenter,
+              audioBuffer
             );
             console.log(`✓ Timing source: LRC (${entries.length} lines → ${notes.length} notes)`);
           }

@@ -40,6 +40,10 @@ export class UIManager {
       volumeValue: document.getElementById('volume-value'),
       offsetSlider: document.getElementById('offset-slider'),
       offsetValue: document.getElementById('offset-value'),
+      perceptualSlider: document.getElementById('perceptual-slider'),
+      perceptualValue: document.getElementById('perceptual-value'),
+      adaptiveBiasSelect: document.getElementById('adaptive-bias-select'),
+      adaptiveBiasValue: document.getElementById('adaptive-bias-value'),
       lyricsEnabledSelect: document.getElementById('lyrics-enabled-select'),
       lyricsEnabledValue: document.getElementById('lyrics-enabled-value'),
       quantizeSelect: document.getElementById('quantize-select'),
@@ -48,11 +52,13 @@ export class UIManager {
     
     // Current settings (will be loaded from localStorage)
     this.settings = {
-      volume: 0.7,        // 70%
-      audioOffset: 0,     // 0ms
-      useLyrics: true,    // Use lyrics timing when available
-      quantizeMode: 'off', // 'off', 'soft', 'hard'
-      langHint: 'auto',   // 'auto', 'EN', 'KO'
+      volume: 0.7,            // 70%
+      audioOffset: 0,         // 0ms
+      perceptualCenter: -35,  // -35ms (vocal attack correction)
+      adaptiveBias: true,     // Enable adaptive bias auto-correction
+      useLyrics: true,        // Use lyrics timing when available
+      quantizeMode: 'off',    // 'off', 'soft', 'hard'
+      langHint: 'auto',       // 'auto', 'EN', 'KO'
     };
     
     // Load settings from storage
@@ -197,6 +203,14 @@ export class UIManager {
     this.settingsElements.offsetSlider.value = this.settings.audioOffset;
     this.settingsElements.offsetValue.textContent = `${this.settings.audioOffset}ms`;
     
+    // Perceptual center slider and display
+    this.settingsElements.perceptualSlider.value = this.settings.perceptualCenter;
+    this.settingsElements.perceptualValue.textContent = `${this.settings.perceptualCenter}ms`;
+    
+    // Adaptive bias select
+    this.settingsElements.adaptiveBiasSelect.value = this.settings.adaptiveBias.toString();
+    this.settingsElements.adaptiveBiasValue.textContent = this.settings.adaptiveBias ? 'ON' : 'OFF';
+    
     // Lyrics timing select
     this.settingsElements.lyricsEnabledSelect.value = this.settings.useLyrics.toString();
     this.settingsElements.lyricsEnabledValue.textContent = this.settings.useLyrics ? 'ON' : 'OFF';
@@ -251,6 +265,11 @@ export class UIManager {
         this.settings = {
           volume: loaded.volume ?? 0.7,
           audioOffset: loaded.audioOffset ?? 0,
+          perceptualCenter: loaded.perceptualCenter ?? -35,
+          adaptiveBias: loaded.adaptiveBias ?? true,
+          useLyrics: loaded.useLyrics ?? true,
+          quantizeMode: loaded.quantizeMode ?? 'off',
+          langHint: loaded.langHint ?? 'auto',
         };
         console.log('Settings loaded from storage');
       }
@@ -335,6 +354,24 @@ export class UIManager {
       this.updateSetting('audioOffset', offset);
       if (callbacks.onOffsetChange) {
         callbacks.onOffsetChange(offset);
+      }
+    });
+    
+    // Perceptual center slider
+    this.settingsElements.perceptualSlider.addEventListener('input', (e) => {
+      const perceptualCenter = parseInt(e.target.value);
+      this.updateSetting('perceptualCenter', perceptualCenter);
+      if (callbacks.onPerceptualChange) {
+        callbacks.onPerceptualChange(perceptualCenter);
+      }
+    });
+    
+    // Adaptive bias select
+    this.settingsElements.adaptiveBiasSelect.addEventListener('change', (e) => {
+      const adaptiveBias = e.target.value === 'true';
+      this.updateSetting('adaptiveBias', adaptiveBias);
+      if (callbacks.onAdaptiveBiasChange) {
+        callbacks.onAdaptiveBiasChange(adaptiveBias);
       }
     });
     

@@ -167,9 +167,11 @@ export class LyricsManager {
    * @param {number} bpm - BPM (퀀타이제이션용)
    * @param {string} quantizeMode - 'off', 'soft', 'hard'
    * @param {string} langHint - 언어 힌트
-   * @returns {Array<{timeMs: number, lane: number}>} 노트 배열
+   * @param {number} perceptualCenter - Perceptual center offset in ms (default -35ms)
+   * @param {AudioBuffer|null} audioBuffer - Audio buffer for approxPeakMs refinement (optional)
+   * @returns {Promise<Array<{timeMs: number, lane: number}>>} 노트 배열
    */
-  generateNotesFromLRC(entries, bpm = 120, quantizeMode = 'off', langHint = 'auto') {
+  async generateNotesFromLRC(entries, bpm = 120, quantizeMode = 'off', langHint = 'auto', perceptualCenter = -35, audioBuffer = null) {
     const notes = [];
     let laneIndex = 0;
     let consecutiveCount = 0;
@@ -178,9 +180,21 @@ export class LyricsManager {
     const beatDuration = (60 / bpm) * 1000; // ms per beat
     const eighthNoteDuration = beatDuration / 2; // 1/8 note duration
     
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      const nextEntry = i < entries.length - 1 ? entries[i + 1] : null;
+    // If audioBuffer provided, refine LRC timestamps using spectral peak detection
+    const refinedEntries = [];
+    if (audioBuffer) {
+      console.log('🔍 Refining LRC timestamps with approxPeakMs...');
+      for (const entry of entries) {
+        const refinedTime = await this.approxPeakMs(audioBuffer, entry.timeMs);
+        refinedEntries.push({ ...entry, timeMs: refinedTime });
+      }
+    } else {
+      refinedEntries.push(...entries);
+    }
+    
+    for (let i = 0; i < refinedEntries.length; i++) {
+      const entry = refinedEntries[i];
+      const nextEntry = i < refinedEntries.length - 1 ? refinedEntries[i + 1] : null;
       
       // 음절 분리
       const syllables = this.syllabify(entry.text, langHint);
@@ -225,9 +239,9 @@ export class LyricsManager {
         }
         
         // Apply perceptual center correction (LYRIC SYNC ENHANCEMENT)
-        // Advances note timing by -35ms to align with perceived vocal attack
+        // Advances note timing to align with perceived vocal attack
         notes.push({
-          timeMs: Math.round(noteTime + PERCEPTUAL_CENTER_MS),
+          timeMs: Math.round(noteTime + perceptualCenter),
           lane: lane
         });
         
@@ -368,6 +382,109 @@ export class LyricsManager {
     } catch (error) {
       console.error('Vocal onset detection failed:', error);
       return [];
+    }
+  }
+
+  /**
+   * 정확한 보컬 피크 찾기 (Find exact vocal onset peak)
+   * 
+   * LRC 타임스탬프 주변 ±100ms 윈도우에서 300-3400Hz 대역의 
+   * 스펙트럴 플럭스 피크를 찾아 정확한 보컬 시작점 반환
+   * 
+   * Searches ±100ms window around LRC timestamp in 300-3400Hz band
+   * for spectral flux peak, excluding kick/bass frequencies
+   * 
+   * @param {AudioBuffer} audioBuffer - 분석할 오디오 버퍼
+   * @param {number} roughTimeMs - 대략적인 시간 (LRC 타임스탬프)
+   * @returns {Promise<number>} 정확한 보컬 피크 시간 (ms)
+   */
+  async approxPeakMs(audioBuffer, roughTimeMs) {
+    const SEARCH_WINDOW_MS = 100; // ±100ms search window
+    const HOP_MS = 5; // 5ms resolution for fine-grained search
+    
+    try {
+      const sampleRate = audioBuffer.sampleRate;
+      const startTimeMs = Math.max(0, roughTimeMs - SEARCH_WINDOW_MS);
+      const endTimeMs = Math.min(audioBuffer.duration * 1000, roughTimeMs + SEARCH_WINDOW_MS);
+      
+      const startSample = Math.floor((startTimeMs / 1000) * sampleRate);
+      const endSample = Math.floor((endTimeMs / 1000) * sampleRate);
+      const windowLength = endSample - startSample;
+      
+      if (windowLength <= 0) {
+        return roughTimeMs;
+      }
+      
+      // Create offline context for the window
+      const offlineContext = new OfflineAudioContext(1, windowLength, sampleRate);
+      
+      // Create a new buffer for just this window
+      const windowBuffer = offlineContext.createBuffer(1, windowLength, sampleRate);
+      const sourceData = audioBuffer.getChannelData(0);
+      const windowData = windowBuffer.getChannelData(0);
+      
+      for (let i = 0; i < windowLength; i++) {
+        windowData[i] = sourceData[startSample + i];
+      }
+      
+      // Create source and bandpass filter (300-3400 Hz voice band)
+      const source = offlineContext.createBufferSource();
+      source.buffer = windowBuffer;
+      
+      const bandpass = offlineContext.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.value = (VOICE_BAND[0] + VOICE_BAND[1]) / 2;
+      bandpass.Q.value = 1.0;
+      
+      // Connect: source → bandpass → destination
+      source.connect(bandpass);
+      bandpass.connect(offlineContext.destination);
+      
+      source.start(0);
+      
+      // Render the filtered audio
+      const renderedBuffer = await offlineContext.startRendering();
+      const channelData = renderedBuffer.getChannelData(0);
+      
+      // Calculate spectral flux at each hop
+      const hopSamples = Math.floor((HOP_MS / 1000) * sampleRate);
+      const fluxes = [];
+      
+      let prevEnergy = 0;
+      for (let i = 0; i < channelData.length; i += hopSamples) {
+        const frameEnd = Math.min(i + hopSamples, channelData.length);
+        let energy = 0;
+        
+        for (let j = i; j < frameEnd; j++) {
+          energy += channelData[j] * channelData[j];
+        }
+        
+        energy = Math.sqrt(energy / (frameEnd - i));
+        const flux = Math.max(0, energy - prevEnergy);
+        
+        const timeMs = startTimeMs + (i / sampleRate) * 1000;
+        fluxes.push({ time: timeMs, flux });
+        
+        prevEnergy = energy;
+      }
+      
+      // Find the peak flux (vocal attack moment)
+      if (fluxes.length === 0) {
+        return roughTimeMs;
+      }
+      
+      let peakFlux = fluxes[0];
+      for (const f of fluxes) {
+        if (f.flux > peakFlux.flux) {
+          peakFlux = f;
+        }
+      }
+      
+      return peakFlux.time;
+      
+    } catch (error) {
+      console.warn('approxPeakMs failed, using rough time:', error);
+      return roughTimeMs;
     }
   }
 

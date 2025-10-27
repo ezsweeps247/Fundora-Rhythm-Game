@@ -86,6 +86,15 @@ export class Game {
   }
 
   /**
+   * Set adaptive bias enabled/disabled
+   * @param {boolean} enabled - Whether adaptive bias should be enabled
+   */
+  setAdaptiveBiasEnabled(enabled) {
+    this.adaptiveBiasEnabled = enabled;
+    console.log(`Adaptive bias ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
    * Setup input manager callbacks
    * Handles lane presses during gameplay with PRECISE event timing
    */

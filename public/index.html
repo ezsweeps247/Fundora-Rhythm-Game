@@ -147,8 +147,29 @@
             AUDIO OFFSET
             <span id="offset-value" class="settings-value" data-testid="text-offset">0ms</span>
           </label>
-          <input type="range" id="offset-slider" min="-100" max="100" step="5" value="0" class="slider" data-testid="slider-offset">
-          <p class="settings-hint">Adjust if notes feel early/late</p>
+          <input type="range" id="offset-slider" min="-120" max="120" step="5" value="0" class="slider" data-testid="slider-offset">
+          <p class="settings-hint">Global timing adjustment (song sync)</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">
+            PERCEPTUAL CENTER
+            <span id="perceptual-value" class="settings-value" data-testid="text-perceptual">-35ms</span>
+          </label>
+          <input type="range" id="perceptual-slider" min="-80" max="40" step="5" value="-35" class="slider" data-testid="slider-perceptual">
+          <p class="settings-hint">Vocal attack timing (-35ms default)</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">
+            ADAPTIVE BIAS
+            <span id="adaptive-bias-value" class="settings-value" data-testid="text-adaptive-bias">ON</span>
+          </label>
+          <select id="adaptive-bias-select" class="settings-select" data-testid="select-adaptive-bias">
+            <option value="true">ON</option>
+            <option value="false">OFF</option>
+          </select>
+          <p class="settings-hint">Auto-correct your timing tendency</p>
         </div>
 
         <div class="settings-section">

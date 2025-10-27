@@ -77,11 +77,15 @@ document.getElementById('start-btn').addEventListener('click', async () => {
       {
         useLyrics: settings.useLyrics,
         quantizeMode: settings.quantizeMode,
-        langHint: settings.langHint
+        langHint: settings.langHint,
+        perceptualCenter: settings.perceptualCenter
       }
     );
     
     game.setChart(chart);
+    
+    // Apply adaptive bias setting
+    game.setAdaptiveBiasEnabled(settings.adaptiveBias);
     
     // Start the game
     await game.startGame();
@@ -109,6 +113,17 @@ uiManager.setupSettingsListeners({
   },
   onOffsetChange: (offset) => {
     audioManager.setAudioOffset(offset);
+  },
+  onPerceptualChange: (perceptualCenter) => {
+    // Perceptual center only applies to new charts
+    console.log(`Perceptual center updated: ${perceptualCenter}ms (restart game to apply)`);
+  },
+  onAdaptiveBiasChange: (enabled) => {
+    // Update game's adaptive bias setting
+    if (game) {
+      game.setAdaptiveBiasEnabled(enabled);
+      console.log(`Adaptive bias ${enabled ? 'enabled' : 'disabled'}`);
+    }
   },
 });
 
