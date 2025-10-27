@@ -29,6 +29,8 @@ import {
   lerp,
 } from './utils.js';
 
+import { REF_PROFILE_KEY } from './beattrack.js';
+
 // Game states
 export const GameState = {
   MENU: 'menu',
@@ -348,6 +350,25 @@ export class Game {
     this.state = GameState.RESULTS;
     this.audio.stop();
     this.stopGameLoop();
+    
+    // Save BLACKPINK profile if this is BLACKPINK-JUMP
+    if (this.currentChart.title === 'BLACKPINK - 뛰어 (JUMP)' && this.chart.beatGridInfo) {
+      try {
+        const profile = {
+          bpm: this.chart.beatGridInfo.bpm,
+          phaseMs: this.chart.beatGridInfo.phaseMs,
+          confidence: this.chart.beatGridInfo.confidence,
+          preFilters: this.chart.beatGridInfo.preFilters || { hp: 30, lp: 2600 },
+          fluxHopMs: this.chart.beatGridInfo.fluxHopMs || 10,
+          subdivision: this.currentChart.subdivision || 4,
+          timestamp: Date.now(),
+        };
+        localStorage.setItem(REF_PROFILE_KEY, JSON.stringify(profile));
+        console.log('✓ Saved BLACKPINK reference profile:', profile);
+      } catch (e) {
+        console.warn('Failed to save BLACKPINK profile:', e);
+      }
+    }
     
     // Get timing source from chart manager
     const timingSource = this.chart.getTimingSourceDisplay();
