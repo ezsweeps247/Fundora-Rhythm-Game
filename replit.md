@@ -8,6 +8,15 @@ The application uses a dual-architecture approach: a legacy vanilla JavaScript i
 
 ## Recent Changes
 
+**October 27, 2025 - BPM Validation & Song Library Update**
+- Corrected BPM values in all chart files to match actual songs: BLACKPINK-JUMP (180), BTS-Dynamite (114), APT (149)
+- Implemented BPM validation system: when detected BPM differs >10% from chart BPM, uses chart BPM instead
+- Added fallback pattern generation for charts with no notes when audio analysis unavailable
+- Converted APT from manual chart (2926 lines) to auto-generated beat-grid pattern for consistency
+- Fixed audio decoding failure handling for APT song (uses chart BPM fallback)
+- All three songs now playable with correct beat alignment and rhythm feel
+- BPM validation logs: "⚠️ BPM mismatch" warning when detection is overridden, "ℹ️ BPM variance" info for 5-10% differences
+
 **October 27, 2025 - Seed-Based Pattern Generation & Difficulty System**
 - Implemented deterministic seed-based procedural pattern generation using audio hashing
 - Added `patterns.js` module with `generatePattern()` and difficulty presets
@@ -60,11 +69,13 @@ Preferred communication style: Simple, everyday language.
 - **Canvas Rendering:** Fixed 800×600px game canvas with 4 equal-width lanes
 - **Beat-Sync Timing System:**
   - Automatic tempo detection (70-180 BPM) using OfflineAudioContext spectral flux analysis
+  - BPM validation: compares detected vs chart BPM, uses chart BPM if >10% difference (prevents detection errors)
   - Phase-aligned beat grid with configurable subdivisions (1/2, 1/3, 1/4 notes)
   - Absolute time-based positioning (notes rendered via yFromMs function, no velocity drift)
   - Event timestamp judgment for frame-independent timing (±35ms Perfect, ±70ms Great, ±110ms Good)
   - Optional quantization for cached charts (hard/soft modes snap notes to detected beat grid)
   - Audio offset calibration for system latency compensation
+  - Fallback pattern generation when audio decoding fails (uses chart BPM + 180s assumed duration)
 
 **Modern Stack (client/):**
 - **React 18** with TypeScript and Vite bundler
