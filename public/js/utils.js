@@ -229,3 +229,93 @@ export function calculateGrade(accuracy) {
 export function formatNumber(num) {
   return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
+
+// ============================================================
+// SEED & HASH UTILITIES (Pattern Generation)
+// ============================================================
+
+/**
+ * Xorshift32 pseudo-random number generator
+ * Fast, deterministic RNG for procedural pattern generation
+ * 
+ * @param {number} seed - Initial seed value (32-bit integer)
+ * @returns {Function} RNG function that returns values in [0, 1)
+ */
+export function xorshift32(seed) {
+  let x = (seed | 0) || 1;
+  return () => {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    return (x >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Hash a string to a 32-bit integer using SHA-256
+ * Used for creating unique song seeds
+ * 
+ * @param {string} str - String to hash
+ * @returns {Promise<number>} 32-bit hash value
+ */
+export async function hash32(str) {
+  const bytes = new TextEncoder().encode(str);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const view = new DataView(digest);
+  
+  // Fold 256 bits down to 32 bits via XOR
+  let h = 0;
+  for (let i = 0; i < view.byteLength; i += 4) {
+    h ^= view.getUint32(i);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Create a unique hash from audio buffer samples
+ * Ensures different songs get different pattern seeds
+ * 
+ * @param {AudioBuffer} audioBuffer - Audio buffer to hash
+ * @param {number} seconds - How many seconds to analyze (default 90)
+ * @returns {Promise<number>} 32-bit audio hash
+ */
+export async function audioHash32(audioBuffer, seconds = 90) {
+  const sr = audioBuffer.sampleRate;
+  const frames = Math.min(audioBuffer.length, Math.floor(seconds * sr));
+  
+  // Downmix to mono
+  const chs = audioBuffer.numberOfChannels;
+  const tmp = new Float32Array(frames);
+  for (let c = 0; c < chs; c++) {
+    const ch = audioBuffer.getChannelData(c);
+    for (let i = 0; i < frames; i++) {
+      tmp[i] += ch[i] / chs;
+    }
+  }
+  
+  // Downsample to ~11kHz for stability
+  const factor = Math.max(1, Math.floor(sr / 11025));
+  const ds = new Float32Array(Math.ceil(frames / factor));
+  for (let i = 0, j = 0; i < frames; i += factor, j++) {
+    ds[j] = tmp[i];
+  }
+  
+  // Quantize to int16 and hash
+  const raw = new Uint8Array(ds.length * 2);
+  for (let i = 0; i < ds.length; i++) {
+    const s = Math.max(-1, Math.min(1, ds[i]));
+    const q = (s * 32767) | 0;
+    raw[i * 2] = q & 0xff;
+    raw[i * 2 + 1] = (q >> 8) & 0xff;
+  }
+  
+  const digest = await crypto.subtle.digest('SHA-256', raw);
+  const view = new DataView(digest);
+  
+  // Fold to 32-bit
+  let h = 0;
+  for (let i = 0; i < view.byteLength; i += 4) {
+    h ^= view.getUint32(i);
+  }
+  return h >>> 0;
+}

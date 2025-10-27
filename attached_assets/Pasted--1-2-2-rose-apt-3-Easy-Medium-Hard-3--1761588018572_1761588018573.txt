@@ -1,0 +1,239 @@
+목표: (1) 최근 추가한 2곡이 같은 패턴으로 나오는 문제 수정, (2) rose-apt 난이도 기준으로 전체를 쉬워지게 또는 (3) Easy / Medium / Hard 3단계 난이도 추가.
+기존 UI/판정/비트동기화는 유지하고 패턴 생성부와 난이도 로직만 변경합니다.
+
+🔁 Fix “Same Pattern” & Add Difficulty Presets (match rose-apt feel)
+
+Keep: HTML/CSS/JS only. Existing beat-tracker (BPM+phase), absolute-time movement, judgement windows, localStorage, settings UI.
+Change: seed/pattern generator & difficulty system.
+
+0) Files to edit/add
+/js/beattrack.js         # unchanged
+/js/patterns.js          # MODIFY: accept difficulty; better RNG usage
+/js/utils.js             # MODIFY: hashing helpers
+/js/game.js              # MODIFY: hook difficulty + seed building + cache invalidation
+/js/ui.js                # MODIFY: add Difficulty dropdown + easier defaults
+/README.md               # UPDATE: Difficulty presets + seed behavior
+
+1) “같은 패턴” 버그 원인 & 수정
+
+원인(가능성):
+
+songSeed가 title + bpm + phaseMs 같은 느슨한 키를 사용 → 서로 다른 곡이라도 해시 충돌/동일 seed.
+
+또는 chart 캐시를 곡간 재사용하거나, Lock Seed가 켜진 상태로 유지.
+
+해결(반드시 적용):
+
+강력한 노래 식별 해시:
+
+오디오 버퍼 처음 90초를 샘플링해 SHA-256 → audioHash32(32-bit로 fold).
+
+songId = filePath || title || metadata.id.
+
+songSeed = hash32(songId + ':' + bpm.toFixed(2) + ':' + Math.round(phaseMs) + ':' + audioHash32).
+
+플레이마다 다른 시드(잠금 안했을 때):
+
+runNonce = settings.patternSeedLocked ? (settings.patternSeed|0) : (crypto.getRandomValues(new Uint32Array(1))[0] | 0).
+
+playSeed = songSeed ^ runNonce.
+
+캐시 무효화:
+
+곡이 바뀌거나 난이도/서브디비전/Sync 옵션이 바뀌면 항상 패턴 재생성.
+
+패턴을 /public/charts/*.json에 캐시한다면, 캐시 키에 songSeed + difficultyKey + generatorVersion 포함.
+
+디버그 출력:
+
+콘솔에 songSeed, runNonce, playSeed, difficulty를 매 플레이마다 로그.
+
+utils.js (추가/수정):
+
+export function xorshift32(seed){ let x = seed|0||1; return ()=>((x^=x<<13, x^=x>>>17, x^=x<<5)>>>0)/4294967296; }
+
+export async function hash32(str){
+  const b=new TextEncoder().encode(str);
+  const d=await crypto.subtle.digest('SHA-256',b);
+  const v=new DataView(d);
+  // fold 256->32
+  let h=0; for(let i=0;i<v.byteLength;i+=4) h^=v.getUint32(i);
+  return h>>>0;
+}
+
+export async function audioHash32(audioBuffer, seconds=90){
+  const sr = audioBuffer.sampleRate;
+  const frames = Math.min(audioBuffer.length, Math.floor(seconds*sr));
+  // mono fold:
+  const chs = audioBuffer.numberOfChannels;
+  const tmp = new Float32Array(frames);
+  for(let c=0;c<chs;c++){
+    const ch = audioBuffer.getChannelData(c);
+    for(let i=0;i<frames;i++) tmp[i] += ch[i]/chs;
+  }
+  // downsample ~ 11k for stability
+  const factor = Math.max(1, Math.floor(sr/11025));
+  const ds = new Float32Array(Math.ceil(frames/factor));
+  for(let i=0,j=0;i<frames;i+=factor, j++) ds[j]=tmp[i];
+  // hash
+  const raw = new Uint8Array(ds.length*2);
+  // quantize to int16-ish
+  for(let i=0;i<ds.length;i++){
+    const s=Math.max(-1,Math.min(1,ds[i]));
+    const q=(s*32767)|0;
+    raw[i*2] = q & 0xff;
+    raw[i*2+1] = (q>>8) & 0xff;
+  }
+  const d=await crypto.subtle.digest('SHA-256', raw);
+  const v=new DataView(d);
+  let h=0; for(let i=0;i<v.byteLength;i+=4) h^=v.getUint32(i);
+  return h>>>0;
+}
+
+
+game.js (seed 구성 예시):
+
+import { hash32, audioHash32 } from './utils.js';
+import { generatePattern } from './patterns.js';
+
+async function buildPlaySeed(meta, audioBuffer, settings){
+  const ah = await audioHash32(audioBuffer, 90);
+  const songId = meta.path || meta.title || String(Math.random());
+  const baseKey = `${songId}:${meta.bpm.toFixed(2)}:${Math.round(meta.phaseMs)}:${ah}`;
+  const songSeed = await hash32(baseKey);
+  const runNonce = settings.patternSeedLocked ? (settings.patternSeed|0) : (crypto.getRandomValues(new Uint32Array(1))[0]|0);
+  const playSeed = (songSeed ^ runNonce) >>> 0;
+  console.log('[Seed]', {songSeed, runNonce, playSeed});
+  return playSeed;
+}
+
+2) rose-apt 난이도로 “전체 쉬워지게” & 3 레벨 프리셋
+
+목표: 기본 난이도(=Medium)는 rose-apt의 체감 난이도와 동일하거나 약간 쉬움.
+또한 Easy / Medium / Hard 3단계 프리셋을 UI에 제공.
+
+난이도 지표(자동 튜너)
+
+목표 NPS(Notes Per Second) 기준:
+
+Easy: 1.5–2.0 NPS
+
+Medium (≈ rose-apt): 2.3–2.8 NPS
+
+Hard: 3.2–4.0 NPS (단, 잭/트릴 보호)
+
+패턴 생성 후 NPS가 목표 범위를 벗어나면 서브틱 스킵 비율을 자동 조절하여 근사치에 맞춤.
+
+Preset 파라미터(초기값)
+const DIFF = {
+  Easy:   { subdiv: 2, skipSubProb: 0.55, syncop: 0.10, maxSameLane: 2, minIoiLaneMs: 150, jackGuard: true },
+  Medium: { subdiv: 4, skipSubProb: 0.45, syncop: 0.20, maxSameLane: 2, minIoiLaneMs: 120, jackGuard: true }, // ≈ rose-apt
+  Hard:   { subdiv: 4, skipSubProb: 0.25, syncop: 0.30, maxSameLane: 3, minIoiLaneMs: 95,  jackGuard: true }
+};
+
+
+subdiv: 비트 하위 분해 (2=8th feel, 4=16th feel)
+
+skipSubProb: 하위 분해 박자에서 생략 확률(높을수록 노트 밀도 ↓)
+
+syncop: 당김음/백비트 가중 (0~0.6)
+
+minIoiLaneMs: 같은 레인 연속 최소 간격(잭 방지)
+
+maxSameLane: 연속 같은 레인 최대 허용
+
+ui.js: 메뉴에 Difficulty 드롭다운 추가(기본=Medium). 변경 시 즉시 재생성.
+
+3) patterns.js — 시드 기반 절차 생성 + 난이도 적용
+
+입력: gridTimes(beat+sub ticks), opts(lanes, seed, difficulty preset, skipSubProb, syncop, guards…).
+
+과정:
+
+시드 RNG 생성: const rnd = xorshift32(seed);
+
+밀도 조절: tick이 type==='sub'일 때 if (rnd() < skipSubProb) continue;
+
+모티프 섞기: 4틱/8틱 단위 작은 패턴 라이브러리(직진, 인아웃, 핑퐁, 미러, 변형).
+
+mirrorChance와 varyChance로 다채롭게.
+
+maxSameLane / minIoiLaneMs로 공정성 확보.
+
+싱코페이션 가중: off-beat에 확률적 강조/레인 이동 (syncop).
+
+NPS 피드백 루프(선택): 결과 NPS 측정 후 skipSubProb를 1–2회 미세조정.
+
+출력: { timeMs, lane }[]
+
+중요: seed가 다르면 매번 다른 패턴. songSeed가 곡마다 다르니 서로 다른 곡은 기본적으로 패턴이 달라집니다.
+
+4) rose-apt 기준치로 자동 보정 (선택-하지만 권장)
+
+rose-apt 차트가 있으면 그 평균 NPS를 측정하여 TARGET_NPS_MEDIUM으로 저장.
+향후 다른 곡의 Medium 생성 시, 이 값으로 NPS 목표를 잡아 일관된 체감 난이도를 유지.
+
+const TARGET_NPS = {
+  Easy:   1.8,
+  Medium: window.ROSE_APT_NPS ?? 2.5, // rose-apt 분석값이 있으면 사용
+  Hard:   3.6
+};
+
+5) Integration (game.js) — 난이도, 시드, 재생성
+async function buildChart(meta, grid, audioBuffer, settings){
+  const playSeed = await buildPlaySeed(meta, audioBuffer, settings);
+  const preset = DIFF[settings.difficulty || 'Medium'];
+  const notes = generatePattern(grid, {
+    lanes: 4,
+    subdiv: preset.subdiv,
+    skipSubProb: preset.skipSubProb,
+    syncopation: preset.syncop,
+    maxSameLane: preset.maxSameLane,
+    minInterOnsetMsPerLane: preset.minIoiLaneMs,
+    jackGuard: preset.jackGuard,
+    seed: playSeed
+  });
+  // NPS fit (optional): if outside TARGET_NPS, adjust skipSubProb and regen once
+  const nps = notes.length / (meta.lengthMs/1000);
+  const tgt = TARGET_NPS[settings.difficulty || 'Medium'];
+  if(Math.abs(nps - tgt) > 0.4){
+    const adj = Math.max(0.05, Math.min(0.95, preset.skipSubProb + (nps>tgt ? 0.10 : -0.10)));
+    notes.length = 0;
+    notes.push(...generatePattern(grid, {...preset, skipSubProb: adj, seed: playSeed ^ 0x9e3779b9}));
+  }
+
+  console.log('[Pattern]', settings.difficulty, {nps: (notes.length/(meta.lengthMs/1000)).toFixed(2)});
+  return { title: meta.title, audio: meta.src, offsetMs: 0, bpm: meta.bpm, lanes: 4, notes };
+}
+
+
+UI
+
+Settings: Difficulty = Easy / Medium(기본) / Hard
+
+“Pattern Seed” 입력 + “🎲 Randomize” 버튼(잠금 해제 시 매 플레이 랜덤)
+
+난이도/시드 변경 시 항상 재생성 (캐시 키 변경)
+
+6) Acceptance (필수 통과)
+
+최근 추가한 2곡을 번갈아 플레이 → 패턴이 서로 다르며 같은 곡도 Lock Seed=Off면 매번 달라짐.
+
+rose-apt와 다른 곡의 Medium을 비교 → 체감 난이도(밀도/NPS)가 유사.
+
+Easy/Hard로 바꾸면 명확히 쉬워짐/어려워짐(NPS, 잭 빈도, 싱코페이션 강도).
+
+난이도/시드 변경, 곡 변경 시 항상 패턴 재생성(캐시 재사용 금지).
+
+콘솔 로그에 {songSeed, runNonce, playSeed, difficulty, nps}가 표시.
+
+7) README 업데이트
+
+“Why two new songs looked the same?”—seed/caching 설명
+
+Difficulty 표와 각 프리셋 목표 NPS 기재
+
+재현 가능한 패턴을 위해 Seed를 잠그는 방법
+
+✅ 완료 시 콘솔 배너 출력:
+Pattern/Difficulty FIX ✅ • unique per song • Easy/Medium/Hard (Medium ≈ rose-apt) • NPS tuned

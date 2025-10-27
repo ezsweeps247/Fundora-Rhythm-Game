@@ -155,6 +155,19 @@
 
         <div class="settings-section">
           <label class="settings-label">
+            DIFFICULTY
+            <span id="difficulty-value" class="settings-value" data-testid="text-difficulty">Medium</span>
+          </label>
+          <select id="difficulty-select" class="settings-select" data-testid="select-difficulty">
+            <option value="Easy">Easy (1.8 NPS)</option>
+            <option value="Medium" selected>Medium (2.5 NPS)</option>
+            <option value="Hard">Hard (3.6 NPS)</option>
+          </select>
+          <p class="settings-hint">Pattern density (notes per second)</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">
             SUBDIVISION
             <span id="subdivision-value" class="settings-value" data-testid="text-subdivision">1/4</span>
           </label>

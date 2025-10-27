@@ -8,17 +8,48 @@
  * 
  * This module handles:
  * - Loading chart JSON files
- * - Beat grid-based chart generation (tempo/phase detection → quantized notes)
+ * - Seed-based procedural pattern generation (unique per song)
+ * - Difficulty-based pattern density
  * - Validating chart data
  * - Sorting notes by time
  */
 
 import { analyzeBeatGrid, makeBeatGrid, laneForGridIndex, quantizeToGrid } from './beattrack.js';
+import { generatePattern, adjustDensity, DIFFICULTY_PRESETS } from './patterns.js';
+import { hash32, audioHash32 } from './utils.js';
 
 export class ChartManager {
   constructor() {
     this.currentChart = null;
     this.beatGridInfo = null; // Stores {bpm, phaseMs, confidence}
+  }
+
+  /**
+   * Build a unique, deterministic seed for pattern generation
+   * Each song + difficulty combo gets a unique, repeatable pattern
+   * 
+   * @param {object} meta - Song metadata {title, bpm, phaseMs, path}
+   * @param {AudioBuffer} audioBuffer - Audio buffer
+   * @param {object} settings - Settings {difficulty, patternSeedLocked, patternSeed}
+   * @returns {Promise<number>} Play seed (32-bit unsigned integer)
+   */
+  async buildPlaySeed(meta, audioBuffer, settings = {}) {
+    // Generate audio hash from first 90 seconds
+    const ah = await audioHash32(audioBuffer, 90);
+    
+    // Build unique song key including difficulty for different patterns per difficulty
+    const songId = meta.path || meta.title || `song_${Date.now()}`;
+    const difficulty = settings.difficulty || 'Medium';
+    const baseKey = `${songId}:${meta.bpm.toFixed(2)}:${Math.round(meta.phaseMs)}:${ah}:${difficulty}`;
+    const songSeed = await hash32(baseKey);
+    
+    // By default, seed is deterministic (same song+difficulty = same pattern)
+    // Only add random nonce if pattern variation is explicitly enabled
+    const playSeed = songSeed >>> 0;
+    
+    console.log('[Seed]', { songSeed, playSeed, difficulty, song: meta.title || songId.substring(0, 30) });
+    
+    return playSeed;
   }
 
   /**
@@ -100,18 +131,38 @@ export class ChartManager {
             const gridInfo = await analyzeBeatGrid(audioBuffer);
             this.beatGridInfo = gridInfo;
             
-            // If chart has no notes, generate them from detected musical events
+            // If chart has no notes, generate them using seed-based pattern
             if (chart.notes.length === 0 && gridInfo.onsets && gridInfo.onsets.length > 0) {
-              const lanePattern = [0, 1, 2, 3, 1, 3, 0, 2];
+              const meta = {
+                title: chart.title,
+                bpm: gridInfo.bpm,
+                phaseMs: gridInfo.phaseMs,
+                path: audioPath,
+              };
               
-              chart.notes = gridInfo.onsets.map((onset, index) => {
-                return {
-                  timeMs: onset.timeMs,
-                  lane: lanePattern[index % lanePattern.length],
-                  judged: false
-                };
+              const playSeed = await this.buildPlaySeed(meta, audioBuffer, settings);
+              const difficultyKey = settings.difficulty || 'Medium';
+              const preset = DIFFICULTY_PRESETS[difficultyKey] || DIFFICULTY_PRESETS['Medium'];
+              
+              if (!DIFFICULTY_PRESETS[difficultyKey]) {
+                console.warn(`Unknown difficulty "${difficultyKey}", using Medium`);
+              }
+              
+              let notes = generatePattern(gridInfo.onsets, {
+                lanes: 4,
+                seed: playSeed,
+                ...preset,
               });
-              console.log(`✓ Generated ${chart.notes.length} notes from musical events: ${chart.title}`);
+              
+              // Enforce target NPS if specified in preset
+              if (preset.targetNPS) {
+                notes = adjustDensity(notes, audioBuffer.duration * 1000, preset.targetNPS, playSeed);
+              }
+              
+              chart.notes = notes;
+              
+              const nps = chart.notes.length / (audioBuffer.duration);
+              console.log(`✓ Generated ${chart.notes.length} notes (${nps.toFixed(2)} NPS, ${settings.difficulty || 'Medium'}): ${chart.title}`);
             }
             
             chart.beatGridInfo = gridInfo;
@@ -149,24 +200,30 @@ export class ChartManager {
         
         console.log(`Musical Analysis • BPM=${bpm.toFixed(1)} • ${gridInfo.onsets ? gridInfo.onsets.length : 0} events detected`);
         
-        // Generate notes from detected musical onsets
+        // Generate notes using seed-based pattern
         if (gridInfo.onsets && gridInfo.onsets.length > 0) {
-          // Distribute bass notes evenly across all 4 lanes for variety
-          const lanePattern = [0, 1, 2, 3, 1, 3, 0, 2]; // Varied pattern
+          const meta = {
+            title: title,
+            bpm: bpm,
+            phaseMs: phaseMs,
+            path: audioPath,
+          };
           
-          notes = gridInfo.onsets.map((onset, index) => {
-            return {
-              timeMs: onset.timeMs,
-              lane: lanePattern[index % lanePattern.length],
-              judged: false
-            };
+          const playSeed = await this.buildPlaySeed(meta, audioBuffer, settings);
+          const preset = DIFFICULTY_PRESETS[settings.difficulty || 'Medium'];
+          
+          notes = generatePattern(gridInfo.onsets, {
+            lanes: 4,
+            seed: playSeed,
+            ...preset,
           });
           
-          console.log(`✓ Generated ${notes.length} notes from musical events`);
+          const nps = notes.length / (audioBuffer.duration);
+          console.log(`✓ Generated ${notes.length} notes (${nps.toFixed(2)} NPS, ${settings.difficulty || 'Medium'})`);
         } else {
           // Fallback to simple pattern if onset detection fails
           const duration = audioBuffer.duration;
-          const generated = this.generateAutoChart(bpm, duration, 8);
+          const generated = this.generateAutoChart(bpm, duration, settings);
           notes = generated.notes;
         }
         
@@ -174,13 +231,13 @@ export class ChartManager {
         console.error('Musical analysis failed:', error);
         // Fallback to simple chart
         const duration = audioBuffer.duration;
-        const generated = this.generateAutoChart(bpm, duration, 8);
+        const generated = this.generateAutoChart(bpm, duration, settings);
         notes = generated.notes;
       }
     } else {
       // No audio buffer, generate simple chart
       const duration = 10;
-      const generated = this.generateAutoChart(bpm, duration, 8);
+      const generated = this.generateAutoChart(bpm, duration, settings);
       notes = generated.notes;
     }
     
@@ -255,26 +312,32 @@ export class ChartManager {
   /**
    * Generate a simple auto-chart
    * Useful for testing or when no chart file exists
-   * Creates notes in a round-robin pattern across lanes
+   * Creates notes in a round-robin pattern across lanes respecting difficulty NPS
    * 
    * @param {number} bpm - Beats per minute
    * @param {number} duration - Duration in seconds
-   * @param {number} noteInterval - Note interval (e.g., 8 for 8th notes)
+   * @param {object} settings - Settings including difficulty
    * @returns {object} Generated chart
    */
-  generateAutoChart(bpm = 120, duration = 10, noteInterval = 8) {
-    const beatDuration = (60 / bpm) * 1000; // milliseconds per beat
-    const noteDuration = beatDuration / (noteInterval / 4); // interval between notes
+  generateAutoChart(bpm = 120, duration = 10, settings = {}) {
+    const difficulty = settings.difficulty || 'Medium';
+    const preset = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS['Medium'];
+    const targetNPS = preset.targetNPS || 2.5;
+    
+    // Calculate target note count based on NPS
+    const targetNoteCount = Math.round(targetNPS * duration);
+    const noteDuration = (duration * 1000) / targetNoteCount; // milliseconds between notes
     
     const notes = [];
     let currentTime = 1000; // Start at 1 second
     let currentLane = 0;
     
-    // Generate notes until we reach the duration
-    while (currentTime < duration * 1000) {
+    // Generate exact number of notes based on difficulty
+    for (let i = 0; i < targetNoteCount; i++) {
       notes.push({
         timeMs: currentTime,
-        lane: currentLane
+        lane: currentLane,
+        judged: false
       });
       
       // Move to next lane (round-robin: 0, 1, 2, 3, 0, 1, ...)
@@ -294,7 +357,8 @@ export class ChartManager {
     };
     
     this.currentChart = chart;
-    console.log(`Generated auto-chart with ${notes.length} notes`);
+    const actualNPS = notes.length / duration;
+    console.log(`Generated auto-chart with ${notes.length} notes (${actualNPS.toFixed(2)} NPS, ${difficulty})`);
     
     return chart;
   }

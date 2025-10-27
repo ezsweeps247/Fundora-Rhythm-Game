@@ -40,6 +40,8 @@ export class UIManager {
       volumeValue: document.getElementById('volume-value'),
       offsetSlider: document.getElementById('offset-slider'),
       offsetValue: document.getElementById('offset-value'),
+      difficultySelect: document.getElementById('difficulty-select'),
+      difficultyValue: document.getElementById('difficulty-value'),
       subdivisionSelect: document.getElementById('subdivision-select'),
       subdivisionValue: document.getElementById('subdivision-value'),
       quantizeSelect: document.getElementById('quantize-select'),
@@ -52,6 +54,7 @@ export class UIManager {
     this.settings = {
       volume: 0.7,            // 70%
       audioOffset: 0,         // 0ms
+      difficulty: 'Medium',   // Easy, Medium, Hard
       subdivision: 4,         // 0, 2, 3, 4 (beat subdivisions)
       quantizeMode: 'hard',   // 'hard' or 'soft'
       beatLock: 'soft',       // 'off', 'soft', 'hard'
@@ -199,6 +202,12 @@ export class UIManager {
     this.settingsElements.offsetSlider.value = this.settings.audioOffset;
     this.settingsElements.offsetValue.textContent = `${this.settings.audioOffset}ms`;
     
+    // Difficulty select and display
+    if (this.settingsElements.difficultySelect && this.settingsElements.difficultyValue) {
+      this.settingsElements.difficultySelect.value = this.settings.difficulty;
+      this.settingsElements.difficultyValue.textContent = this.settings.difficulty;
+    }
+    
     // Subdivision select and display
     this.settingsElements.subdivisionSelect.value = this.settings.subdivision.toString();
     const subdivText = this.settings.subdivision === 0 ? 'Beats' : `1/${this.settings.subdivision}`;
@@ -257,6 +266,7 @@ export class UIManager {
         this.settings = {
           volume: loaded.volume ?? 0.7,
           audioOffset: loaded.audioOffset ?? 0,
+          difficulty: loaded.difficulty ?? 'Medium',
           subdivision: loaded.subdivision ?? 4,
           quantizeMode: loaded.quantizeMode ?? 'hard',
           beatLock: loaded.beatLock ?? 'soft',
@@ -344,6 +354,15 @@ export class UIManager {
       this.updateSetting('audioOffset', offset);
       if (callbacks.onOffsetChange) {
         callbacks.onOffsetChange(offset);
+      }
+    });
+    
+    // Difficulty select
+    this.settingsElements.difficultySelect.addEventListener('change', (e) => {
+      const difficulty = e.target.value;
+      this.updateSetting('difficulty', difficulty);
+      if (callbacks.onDifficultyChange) {
+        callbacks.onDifficultyChange(difficulty);
       }
     });
     

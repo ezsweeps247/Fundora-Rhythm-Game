@@ -75,6 +75,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
       audioPath,
       audioBuffer,
       {
+        difficulty: settings.difficulty || 'Medium',
         subdivision: settings.subdivision || 4,
         quantizeMode: settings.quantizeMode || 'hard',
         beatLock: settings.beatLock || 'soft'
@@ -279,17 +280,17 @@ keyButtons.forEach(button => {
 });
 
 console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
-console.log('%cBEAT SYNC ENGINE ✅ • notes locked to tempo grid', 'color: #00ff88; font-weight: bold; font-size: 18px');
-console.log('%c(tempo detection + phase alignment + quantization)', 'color: #ff00ff; font-weight: bold; font-size: 14px');
-console.log('%cPRECISE TIMING SYSTEM', 'color: #00d4ff; font-weight: bold; font-size: 14px');
-console.log('%c  • Beat analysis: auto-detect BPM + phase from audio', 'color: #00d4ff');
-console.log('%c  • Grid quantization: notes align to beat subdivisions', 'color: #00d4ff');
-console.log('%c  • Event timestamp judgment: frame-independent timing', 'color: #00d4ff');
-console.log('%c  • Absolute positioning: time-based (no velocity drift)', 'color: #00d4ff');
-console.log('%c  • Audio offset: calibrate for system latency', 'color: #00d4ff');
-console.log('%cKeys: D F J K • P Pause • R Restart', 'color: #ffcc00; font-weight: bold');
+console.log('%c🎮 PATTERN/DIFFICULTY FIX ✅', 'color: #00ff88; font-weight: bold; font-size: 18px');
+console.log('%c  • Unique per song • Easy/Medium/Hard • NPS tuned', 'color: #ff00ff; font-weight: bold; font-size: 14px');
+console.log('%cSEED-BASED PATTERN GENERATION', 'color: #00d4ff; font-weight: bold; font-size: 14px');
+console.log('%c  • Audio hash: each song gets unique identifier', 'color: #00d4ff');
+console.log('%c  • Pattern seed: deterministic but unique per song', 'color: #00d4ff');
+console.log('%c  • Difficulty: Easy (1.8 NPS) / Medium (2.5 NPS) / Hard (3.6 NPS)', 'color: #00d4ff');
+console.log('%c  • Onset detection: notes follow actual musical events', 'color: #00d4ff');
+console.log('%c  • Jack guard: prevents unfair same-lane spam', 'color: #00d4ff');
+console.log('%cKeys: D F J K • P Pause • R Restart • ESC Menu', 'color: #ffcc00; font-weight: bold');
 console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #00ffff');
-console.log('🎵 Beat tracking: Automatic tempo & phase detection');
-console.log('⚙️ Configurable: Subdivision (2/3/4), quantize mode, beat lock');
-console.log('📊 Debug HUD: BPM, phase, confidence, grid mode');
-console.log('🎮 Ready to play with PERFECT beat-aligned rhythm!');
+console.log('🎵 Different songs = different patterns (fixed!)');
+console.log('⚙️ Settings: Difficulty preset, audio offset, subdivision');
+console.log('📊 Debug: Console shows {songSeed, runNonce, playSeed, difficulty, nps}');
+console.log('🎮 Medium difficulty ≈ rose-apt feel!');
