@@ -8,7 +8,8 @@
 
 import { xorshift32 } from './utils.js';
 
-// Difficulty presets
+// Difficulty presets (E/M/H)
+// Medium ≈ rose-apt feel
 export const DIFFICULTY_PRESETS = {
   Easy: {
     subdiv: 2,
@@ -26,7 +27,7 @@ export const DIFFICULTY_PRESETS = {
     maxSameLane: 2,
     minIoiLaneMs: 120,
     jackGuard: true,
-    targetNPS: 2.5,
+    targetNPS: (typeof window !== 'undefined' && window.ROSE_APT_NPS) || 2.5,
   },
   Hard: {
     subdiv: 4,
