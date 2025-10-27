@@ -123,11 +123,28 @@ function findOnsetPeaks(flux, bandName) {
   const hopMs = 10;
   const onsets = [];
   
-  // Dynamic threshold based on local average
-  const windowSize = 10; // 100ms window
+  // Much stricter threshold - only pick strong beats
+  const windowSize = 50; // 500ms window for better context
+  const minTimeBetweenMs = 150; // Minimum 150ms between notes (max ~6.7 notes/sec)
+  
+  // Threshold multipliers per band (higher = fewer notes)
+  const thresholdMultiplier = {
+    'bass': 4.0,  // Very selective on bass
+    'mid': 5.0,   // Even more selective on mid
+    'high': 6.0   // Most selective on high (avoid noise)
+  };
+  
+  const multiplier = thresholdMultiplier[bandName] || 4.0;
+  let lastOnsetTime = -1000;
   
   for (let i = windowSize; i < flux.length - windowSize; i++) {
     const current = flux[i];
+    const currentTimeMs = i * hopMs;
+    
+    // Skip if too close to last onset
+    if (currentTimeMs - lastOnsetTime < minTimeBetweenMs) {
+      continue;
+    }
     
     // Calculate local average
     let localSum = 0;
@@ -136,23 +153,27 @@ function findOnsetPeaks(flux, bandName) {
     }
     const localAvg = localSum / windowSize;
     
-    // Threshold is 2x local average
-    const threshold = localAvg * 2.0;
+    // Much higher threshold - only strong peaks
+    const threshold = localAvg * multiplier;
     
-    // Check if this is a peak
+    // Check if this is a strong peak
     const isPeak = current > threshold && 
                    current > flux[i-1] && 
-                   current > flux[i+1];
+                   current > flux[i+1] &&
+                   current > flux[i-2] && 
+                   current > flux[i+2];
     
     if (isPeak) {
       onsets.push({
-        timeMs: i * hopMs,
+        timeMs: currentTimeMs,
         strength: current,
         band: bandName
       });
       
+      lastOnsetTime = currentTimeMs;
+      
       // Skip ahead to avoid duplicate peaks
-      i += 3;
+      i += Math.floor(minTimeBetweenMs / hopMs);
     }
   }
   
