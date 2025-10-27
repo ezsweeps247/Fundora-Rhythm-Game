@@ -110,9 +110,9 @@ export class ChartManager {
             
             // If chart has no notes, generate them from the beat grid
             if (chart.notes.length === 0) {
-              chart.notes = grid.map((timeMs, index) => ({
-                timeMs,
-                lane: laneForGridIndex(index, 4),
+              chart.notes = grid.map((item, index) => ({
+                timeMs: item.tms,
+                lane: laneForGridIndex(index, item.type, 4),
                 judged: false
               }));
               console.log(`✓ Generated ${chart.notes.length} notes from beat grid (BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
