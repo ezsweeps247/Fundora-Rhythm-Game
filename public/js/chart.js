@@ -100,28 +100,27 @@ export class ChartManager {
             const gridInfo = await analyzeBeatGrid(audioBuffer);
             this.beatGridInfo = gridInfo;
             
-            const lengthMs = audioBuffer.duration * 1000;
-            const grid = makeBeatGrid({ 
-              bpm: gridInfo.bpm, 
-              phaseMs: gridInfo.phaseMs, 
-              lengthMs, 
-              subdiv: subdivision 
-            });
-            
-            // If chart has no notes, generate them from the beat grid
-            if (chart.notes.length === 0) {
-              chart.notes = grid.map((item, index) => ({
-                timeMs: item.tms,
-                lane: laneForGridIndex(index, item.type, 4),
-                judged: false
-              }));
-              console.log(`✓ Generated ${chart.notes.length} notes from beat grid (BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
-            } else if (quantizeMode !== 'off') {
-              // Quantize existing notes to the detected grid
-              chart.notes.forEach(note => {
-                note.timeMs = quantizeToGrid(note.timeMs, grid, quantizeMode, 60);
+            // If chart has no notes, generate them from detected musical events
+            if (chart.notes.length === 0 && gridInfo.onsets && gridInfo.onsets.length > 0) {
+              const laneMap = {
+                'bass': 0,
+                'mid': 1,
+                'high': 3
+              };
+              
+              chart.notes = gridInfo.onsets.map((onset, index) => {
+                let lane = laneMap[onset.band];
+                if (onset.band === 'mid') {
+                  lane = (index % 2) + 1;
+                }
+                
+                return {
+                  timeMs: onset.timeMs,
+                  lane: lane,
+                  judged: false
+                };
               });
-              console.log(`✓ Loaded cached chart (quantized to BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
+              console.log(`✓ Generated ${chart.notes.length} notes from musical events: ${chart.title}`);
             }
             
             chart.beatGridInfo = gridInfo;
@@ -129,7 +128,7 @@ export class ChartManager {
             chart.quantizeMode = quantizeMode;
             chart.beatLock = beatLock;
           } catch (error) {
-            console.warn('Beat grid analysis failed, using original chart:', error);
+            console.warn('Musical analysis failed, using original chart:', error);
           }
         } else {
           console.log(`✓ Loaded cached chart: ${chart.title}`);
@@ -148,7 +147,7 @@ export class ChartManager {
     let phaseMs = 0;
     let confidence = 0;
     
-    // Analyze beat grid from audio
+    // Analyze musical events from audio
     if (audioBuffer) {
       try {
         const gridInfo = await analyzeBeatGrid(audioBuffer);
@@ -157,23 +156,41 @@ export class ChartManager {
         confidence = gridInfo.confidence;
         this.beatGridInfo = gridInfo;
         
-        console.log(`BeatSync ON • BPM=${bpm.toFixed(1)} phase=${phaseMs.toFixed(0)}ms (conf=${confidence.toFixed(2)})`);
+        console.log(`Musical Analysis • BPM=${bpm.toFixed(1)} • ${gridInfo.onsets ? gridInfo.onsets.length : 0} events detected`);
         
-        // Generate beat grid
-        const lengthMs = audioBuffer.duration * 1000;
-        const grid = makeBeatGrid({ bpm, phaseMs, lengthMs, subdiv: subdivision });
-        
-        // Convert grid to notes with lane assignment
-        notes = grid.map((gridPoint, index) => ({
-          timeMs: gridPoint.tms,
-          lane: laneForGridIndex(index, gridPoint.type, 4),
-          judged: false
-        }));
-        
-        console.log(`✓ Generated ${notes.length} notes from beat grid (subdiv=${subdivision})`);
+        // Generate notes from detected musical onsets
+        if (gridInfo.onsets && gridInfo.onsets.length > 0) {
+          // Map each onset to a note based on frequency band
+          const laneMap = {
+            'bass': 0,   // Low notes -> lane 0
+            'mid': 1,    // Mid notes -> lanes 1-2
+            'high': 3    // High notes -> lane 3
+          };
+          
+          notes = gridInfo.onsets.map((onset, index) => {
+            // Assign lane based on frequency band and add variation
+            let lane = laneMap[onset.band];
+            if (onset.band === 'mid') {
+              lane = (index % 2) + 1; // Alternate between lanes 1 and 2
+            }
+            
+            return {
+              timeMs: onset.timeMs,
+              lane: lane,
+              judged: false
+            };
+          });
+          
+          console.log(`✓ Generated ${notes.length} notes from musical events`);
+        } else {
+          // Fallback to simple pattern if onset detection fails
+          const duration = audioBuffer.duration;
+          const generated = this.generateAutoChart(bpm, duration, 8);
+          notes = generated.notes;
+        }
         
       } catch (error) {
-        console.error('Beat grid analysis failed:', error);
+        console.error('Musical analysis failed:', error);
         // Fallback to simple chart
         const duration = audioBuffer.duration;
         const generated = this.generateAutoChart(bpm, duration, 8);

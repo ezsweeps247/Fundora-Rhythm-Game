@@ -1,52 +1,76 @@
 /**
- * beattrack.js - Tempo and Phase Detection
+ * beattrack.js - Musical Onset Detection
  * 
- * Analyzes audio to detect BPM and beat phase using spectral flux analysis.
- * Generates quantized beat grids for rhythm game note placement.
+ * Analyzes audio to detect actual musical events (drum hits, bass notes, etc.)
+ * Uses multi-band onset detection to create rhythm patterns that follow the music.
  */
 
 /**
- * Analyze audio buffer to detect tempo (BPM) and phase
+ * Analyze audio buffer to detect musical onsets and rhythm
  * 
  * @param {AudioBuffer} audioBuffer - Audio to analyze
  * @param {number} maxAnalysisSeconds - Max seconds to analyze (default 90)
- * @returns {Promise<{bpm: number, phaseMs: number, confidence: number, drift: {ppm: number}}>}
+ * @returns {Promise<{bpm: number, phaseMs: number, confidence: number, onsets: Array<{timeMs: number, strength: number, band: string}>}>}
  */
 export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
-  console.log('🎵 Starting beat analysis...');
+  console.log('🎵 Analyzing musical events...');
   
-  const ctx = new OfflineAudioContext(1, audioBuffer.sampleRate * maxAnalysisSeconds, audioBuffer.sampleRate);
+  const duration = audioBuffer.duration;
   
-  // 1. Downmix to mono and limit duration
-  const analysisDuration = Math.min(audioBuffer.duration, maxAnalysisSeconds);
-  const analysisSamples = Math.floor(analysisDuration * audioBuffer.sampleRate);
+  // Detect onsets in different frequency bands
+  const bassOnsets = await detectOnsetsInBand(audioBuffer, 30, 250, 'bass');
+  const midOnsets = await detectOnsetsInBand(audioBuffer, 250, 2000, 'mid');
+  const highOnsets = await detectOnsetsInBand(audioBuffer, 2000, 8000, 'high');
   
-  const monoBuffer = ctx.createBuffer(1, analysisSamples, audioBuffer.sampleRate);
-  const monoData = monoBuffer.getChannelData(0);
+  // Combine all onsets
+  const allOnsets = [...bassOnsets, ...midOnsets, ...highOnsets]
+    .sort((a, b) => a.timeMs - b.timeMs);
   
-  // Downmix all channels to mono
-  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-    const channelData = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < analysisSamples; i++) {
-      monoData[i] += channelData[i] / audioBuffer.numberOfChannels;
-    }
-  }
+  console.log(`✓ Detected ${allOnsets.length} musical events (bass:${bassOnsets.length} mid:${midOnsets.length} high:${highOnsets.length})`);
   
-  // 2. Apply filtering (high-pass 30Hz, low-pass 2.5kHz)
+  // Estimate tempo from onset intervals
+  const bpm = estimateBPMFromOnsets(allOnsets);
+  const beatMs = 60000 / bpm;
+  
+  // Find first strong onset as phase
+  const phaseMs = allOnsets.length > 0 ? allOnsets[0].timeMs : 0;
+  
+  const result = {
+    bpm: bpm,
+    phaseMs: phaseMs,
+    confidence: 0.8,
+    onsets: allOnsets,
+    drift: { ppm: 0 }
+  };
+  
+  console.log(`✓ Analysis complete: BPM=${bpm.toFixed(1)} phase=${phaseMs.toFixed(0)}ms, ${allOnsets.length} events`);
+  
+  return result;
+}
+
+/**
+ * Detect onsets in a specific frequency band
+ */
+async function detectOnsetsInBand(audioBuffer, lowFreq, highFreq, bandName) {
+  const sampleRate = audioBuffer.sampleRate;
+  const duration = audioBuffer.duration;
+  
+  // Create offline context for filtering
+  const ctx = new OfflineAudioContext(1, audioBuffer.length, sampleRate);
+  
   const source = ctx.createBufferSource();
-  source.buffer = monoBuffer;
+  source.buffer = audioBuffer;
   
-  // High-pass to remove DC and sub-bass
-  const highpass = ctx.createBiquadFilter();
-  highpass.type = 'highpass';
-  highpass.frequency.value = 30;
-  highpass.Q.value = 0.7;
-  
-  // Low-pass to reduce vocals
+  // Band-pass filter
   const lowpass = ctx.createBiquadFilter();
   lowpass.type = 'lowpass';
-  lowpass.frequency.value = 2500;
-  lowpass.Q.value = 0.7;
+  lowpass.frequency.value = highFreq;
+  lowpass.Q.value = 1.0;
+  
+  const highpass = ctx.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = lowFreq;
+  highpass.Q.value = 1.0;
   
   source.connect(highpass);
   highpass.connect(lowpass);
@@ -54,28 +78,85 @@ export async function analyzeBeatGrid(audioBuffer, maxAnalysisSeconds = 90) {
   
   source.start(0);
   
-  // Render filtered audio
-  const filteredBuffer = await ctx.startRendering();
+  const filtered = await ctx.startRendering();
   
-  // 3. Compute spectral flux
-  const flux = computeSpectralFlux(filteredBuffer);
+  // Compute energy flux
+  const flux = computeSpectralFlux(filtered);
   
-  // 4. Estimate tempo using autocorrelation
-  const bpmEstimate = estimateTempo(flux, audioBuffer.sampleRate);
+  // Find peaks in flux (onsets)
+  const onsets = findOnsetPeaks(flux, bandName);
   
-  // 5. Estimate phase for the detected BPM
-  const phaseEstimate = estimatePhase(flux, bpmEstimate.bpm, audioBuffer.sampleRate);
+  return onsets;
+}
+
+/**
+ * Estimate BPM from onset intervals
+ */
+function estimateBPMFromOnsets(onsets) {
+  if (onsets.length < 4) return 120; // Default
   
-  const result = {
-    bpm: bpmEstimate.bpm,
-    phaseMs: phaseEstimate.phaseMs,
-    confidence: Math.min(bpmEstimate.confidence, phaseEstimate.confidence),
-    drift: { ppm: 0 } // Can be updated with long-term tracking
-  };
+  // Calculate intervals between consecutive onsets
+  const intervals = [];
+  for (let i = 1; i < Math.min(onsets.length, 100); i++) {
+    intervals.push(onsets[i].timeMs - onsets[i-1].timeMs);
+  }
   
-  console.log(`✓ Beat analysis complete: BPM=${result.bpm.toFixed(1)} phase=${result.phaseMs.toFixed(0)}ms conf=${result.confidence.toFixed(2)}`);
+  // Find median interval
+  intervals.sort((a, b) => a - b);
+  const medianInterval = intervals[Math.floor(intervals.length / 2)];
   
-  return result;
+  // Convert to BPM (assuming median interval is 1 beat or subdivision)
+  let bpm = 60000 / medianInterval;
+  
+  // Adjust for common subdivision patterns
+  if (bpm > 180) bpm = bpm / 2;
+  if (bpm < 70) bpm = bpm * 2;
+  
+  // Clamp to reasonable range
+  return Math.max(70, Math.min(180, bpm));
+}
+
+/**
+ * Find onset peaks in flux signal
+ */
+function findOnsetPeaks(flux, bandName) {
+  const hopMs = 10;
+  const onsets = [];
+  
+  // Dynamic threshold based on local average
+  const windowSize = 10; // 100ms window
+  
+  for (let i = windowSize; i < flux.length - windowSize; i++) {
+    const current = flux[i];
+    
+    // Calculate local average
+    let localSum = 0;
+    for (let j = i - windowSize; j < i; j++) {
+      localSum += flux[j];
+    }
+    const localAvg = localSum / windowSize;
+    
+    // Threshold is 2x local average
+    const threshold = localAvg * 2.0;
+    
+    // Check if this is a peak
+    const isPeak = current > threshold && 
+                   current > flux[i-1] && 
+                   current > flux[i+1];
+    
+    if (isPeak) {
+      onsets.push({
+        timeMs: i * hopMs,
+        strength: current,
+        band: bandName
+      });
+      
+      // Skip ahead to avoid duplicate peaks
+      i += 3;
+    }
+  }
+  
+  return onsets;
 }
 
 /**
