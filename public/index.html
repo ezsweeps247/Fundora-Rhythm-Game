@@ -206,6 +206,27 @@
         </div>
 
         <div class="settings-section">
+          <label class="settings-label settings-checkbox-label">
+            <input type="checkbox" id="adopt-blackpink-check" checked data-testid="checkbox-adopt-blackpink">
+            <span>ADOPT BLACKPINK PROFILE</span>
+          </label>
+          <p class="settings-hint">Use BLACKPINK-JUMP beat/grid parameters for all songs</p>
+        </div>
+
+        <div class="settings-section">
+          <label class="settings-label">PATTERN SEED</label>
+          <div class="pattern-seed-controls">
+            <input type="number" id="pattern-seed-input" class="settings-input" placeholder="Auto" data-testid="input-pattern-seed">
+            <button id="randomize-seed-btn" class="btn btn-small" data-testid="button-randomize-seed">RANDOMIZE</button>
+            <label class="settings-checkbox-label inline">
+              <input type="checkbox" id="lock-seed-check" data-testid="checkbox-lock-seed">
+              <span>LOCK</span>
+            </label>
+          </div>
+          <p class="settings-hint">Lock seed for repeatable patterns, or randomize for variation</p>
+        </div>
+
+        <div class="settings-section">
           <label class="settings-label">KEY BINDINGS</label>
           <div class="key-bindings">
             <div class="key-binding">

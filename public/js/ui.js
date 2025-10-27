@@ -48,16 +48,23 @@ export class UIManager {
       quantizeValue: document.getElementById('quantize-value'),
       beatlockSelect: document.getElementById('beatlock-select'),
       beatlockValue: document.getElementById('beatlock-value'),
+      adoptBlackpinkCheck: document.getElementById('adopt-blackpink-check'),
+      patternSeedInput: document.getElementById('pattern-seed-input'),
+      randomizeSeedBtn: document.getElementById('randomize-seed-btn'),
+      lockSeedCheck: document.getElementById('lock-seed-check'),
     };
     
     // Current settings (will be loaded from localStorage)
     this.settings = {
-      volume: 0.7,            // 70%
-      audioOffset: 0,         // 0ms
-      difficulty: 'Medium',   // Easy, Medium, Hard
-      subdivision: 4,         // 0, 2, 3, 4 (beat subdivisions)
-      quantizeMode: 'hard',   // 'hard' or 'soft'
-      beatLock: 'soft',       // 'off', 'soft', 'hard'
+      volume: 0.7,                  // 70%
+      audioOffset: 0,               // 0ms
+      difficulty: 'Medium',         // Easy, Medium, Hard
+      subdivision: 4,               // 0, 2, 3, 4 (beat subdivisions)
+      quantizeMode: 'hard',         // 'hard' or 'soft'
+      beatLock: 'soft',             // 'off', 'soft', 'hard'
+      adoptBlackpinkProfile: true,  // Use BLACKPINK profile for all songs
+      patternSeed: null,            // Random seed for patterns (null = auto)
+      patternSeedLocked: false,     // Lock seed for repeatable patterns
     };
     
     // Load settings from storage
@@ -221,6 +228,21 @@ export class UIManager {
     this.settingsElements.beatlockSelect.value = this.settings.beatLock;
     const beatlockText = this.settings.beatLock.charAt(0).toUpperCase() + this.settings.beatLock.slice(1);
     this.settingsElements.beatlockValue.textContent = beatlockText;
+    
+    // Adopt BLACKPINK profile checkbox
+    if (this.settingsElements.adoptBlackpinkCheck) {
+      this.settingsElements.adoptBlackpinkCheck.checked = this.settings.adoptBlackpinkProfile;
+    }
+    
+    // Pattern seed input and lock
+    if (this.settingsElements.patternSeedInput) {
+      this.settingsElements.patternSeedInput.value = this.settings.patternSeed !== null ? this.settings.patternSeed : '';
+      this.settingsElements.patternSeedInput.placeholder = 'Auto';
+    }
+    
+    if (this.settingsElements.lockSeedCheck) {
+      this.settingsElements.lockSeedCheck.checked = this.settings.patternSeedLocked;
+    }
   }
 
   /**
@@ -270,6 +292,9 @@ export class UIManager {
           subdivision: loaded.subdivision ?? 4,
           quantizeMode: loaded.quantizeMode ?? 'hard',
           beatLock: loaded.beatLock ?? 'soft',
+          adoptBlackpinkProfile: loaded.adoptBlackpinkProfile ?? true,
+          patternSeed: loaded.patternSeed ?? null,
+          patternSeedLocked: loaded.patternSeedLocked ?? false,
         };
         console.log('Settings loaded from storage');
       }
@@ -392,6 +417,45 @@ export class UIManager {
         callbacks.onBeatLockChange(mode);
       }
     });
+    
+    // Adopt BLACKPINK profile checkbox
+    if (this.settingsElements.adoptBlackpinkCheck) {
+      this.settingsElements.adoptBlackpinkCheck.addEventListener('change', (e) => {
+        const adopt = e.target.checked;
+        this.updateSetting('adoptBlackpinkProfile', adopt);
+        console.log('Adopt BLACKPINK profile:', adopt);
+      });
+    }
+    
+    // Pattern seed input
+    if (this.settingsElements.patternSeedInput) {
+      this.settingsElements.patternSeedInput.addEventListener('input', (e) => {
+        const value = e.target.value;
+        const seed = value === '' ? null : parseInt(value);
+        this.updateSetting('patternSeed', seed);
+      });
+    }
+    
+    // Randomize seed button
+    if (this.settingsElements.randomizeSeedBtn) {
+      this.settingsElements.randomizeSeedBtn.addEventListener('click', () => {
+        const randomSeed = crypto.getRandomValues(new Uint32Array(1))[0];
+        this.updateSetting('patternSeed', randomSeed);
+        if (this.settingsElements.patternSeedInput) {
+          this.settingsElements.patternSeedInput.value = randomSeed;
+        }
+        console.log('Randomized pattern seed:', randomSeed);
+      });
+    }
+    
+    // Lock seed checkbox
+    if (this.settingsElements.lockSeedCheck) {
+      this.settingsElements.lockSeedCheck.addEventListener('change', (e) => {
+        const locked = e.target.checked;
+        this.updateSetting('patternSeedLocked', locked);
+        console.log('Pattern seed locked:', locked);
+      });
+    }
   }
 
   /**
