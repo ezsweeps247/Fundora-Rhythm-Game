@@ -328,11 +328,17 @@ export class Game {
     const currentTime = this.audio.getSongTimeMs();
     const duration = this.audio.getDuration();
     
+    // If no notes, just check if audio ended
+    if (this.currentChart.notes.length === 0) {
+      return currentTime >= duration;
+    }
+    
     // End when audio finishes or all notes are judged
     const allNotesJudged = this.currentChart.notes.every(note => note.judged);
     const audioEnded = currentTime >= duration;
+    const lastNoteTime = this.currentChart.notes[this.currentChart.notes.length - 1].timeMs;
     
-    return audioEnded || (allNotesJudged && currentTime > this.currentChart.notes[this.currentChart.notes.length - 1].timeMs + 2000);
+    return audioEnded || (allNotesJudged && currentTime > lastNoteTime + 2000);
   }
 
   /**

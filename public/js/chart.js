@@ -94,7 +94,8 @@ export class ChartManager {
         this.validateChart(chart);
         
         // If quantization is enabled and we have audio, quantize the cached chart to beat grid
-        if (quantizeMode !== 'off' && audioBuffer) {
+        // OR if the cached chart has no notes, generate them from the beat grid
+        if (audioBuffer && (quantizeMode !== 'off' || chart.notes.length === 0)) {
           try {
             const gridInfo = await analyzeBeatGrid(audioBuffer);
             this.beatGridInfo = gridInfo;
@@ -107,19 +108,28 @@ export class ChartManager {
               subdiv: subdivision 
             });
             
-            // Quantize existing notes to the detected grid
-            chart.notes.forEach(note => {
-              note.timeMs = quantizeToGrid(note.timeMs, grid, quantizeMode, 60);
-            });
+            // If chart has no notes, generate them from the beat grid
+            if (chart.notes.length === 0) {
+              chart.notes = grid.map((timeMs, index) => ({
+                timeMs,
+                lane: laneForGridIndex(index, 4),
+                judged: false
+              }));
+              console.log(`✓ Generated ${chart.notes.length} notes from beat grid (BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
+            } else if (quantizeMode !== 'off') {
+              // Quantize existing notes to the detected grid
+              chart.notes.forEach(note => {
+                note.timeMs = quantizeToGrid(note.timeMs, grid, quantizeMode, 60);
+              });
+              console.log(`✓ Loaded cached chart (quantized to BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
+            }
             
             chart.beatGridInfo = gridInfo;
             chart.subdivision = subdivision;
             chart.quantizeMode = quantizeMode;
             chart.beatLock = beatLock;
-            
-            console.log(`✓ Loaded cached chart (quantized to BPM=${gridInfo.bpm.toFixed(1)}): ${chart.title}`);
           } catch (error) {
-            console.warn('Beat grid quantization failed, using original chart:', error);
+            console.warn('Beat grid analysis failed, using original chart:', error);
           }
         } else {
           console.log(`✓ Loaded cached chart: ${chart.title}`);
