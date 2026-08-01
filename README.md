@@ -228,3 +228,28 @@ This is a learning project - feel free to modify and use it however you like!
 ## 🎉 Have Fun!
 
 Enjoy playing and creating your own rhythm game charts!
+
+## 🎰 Casino Port (AllIn1 Gaming)
+
+This game has been ported into the AllIn1 sweepstakes casino as **Fundora
+Rhythm** (branch `claude/rhythm-casino-integration-x9nc2i` in
+`ezsweeps247/allin1`), reworked as a dual-currency casino game:
+
+- **Wager**: play for free with Gold Coins (GC), or wager Sweeps Cash (SC —
+  operator-gated behind `RHYTHM_SC_ENABLED`).
+- **Provably fair charts**: instead of MP3s + runtime beat analysis, the note
+  chart (presence, lane, and value tier per 8th-note slot) is dealt from an
+  HMAC-SHA256 server-seed/client-seed/nonce roll stream, verifiable after the
+  round from the revealed seeds. The beat track is synthesized at the chart's
+  BPM, so no audio assets ship.
+- **Payout**: each note carries a value (NORMAL / GOLD 6x / DIAMOND 150x);
+  the payout is the accuracy-weighted collected value using this game's
+  original judgment windows (±35/70/110 ms) and weights (1.0/0.7/0.3),
+  normalized so a perfect run has EV exactly the configured RTP — bounding
+  even a dishonest client by the house edge. Capped at 20x the stake.
+- **What was kept from this repo**: the 4-lane layout, judgment windows and
+  weights, grade thresholds (S/A/B/C), score values, approach timing, and the
+  beep-tone fallback concept. Input gained touch lanes for Telegram WebApp.
+
+See `server/games/rhythm-engine.ts`, `server/games/rhythm.ts`, and
+`client/src/pages/rhythm.tsx` in the allin1 repo.
